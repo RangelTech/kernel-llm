@@ -11,6 +11,7 @@ em silêncio economiza a consulta, mas não quebra o laço.
 import json
 
 import pytest
+
 from app import tools
 
 pytestmark = pytest.mark.anyio

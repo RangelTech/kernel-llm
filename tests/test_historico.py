@@ -8,6 +8,7 @@ barato e perde o começo; resumir preserva o sentido e custa uma chamada a mais.
 """
 
 import pytest
+
 from app import graph
 
 pytestmark = pytest.mark.anyio

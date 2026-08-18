@@ -10,6 +10,7 @@ erro que o cliente espera.
 import asyncio
 
 import pytest
+
 from app import runs
 from tests.conftest import sse_events as _events
 

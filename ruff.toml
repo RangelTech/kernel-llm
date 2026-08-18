@@ -1,0 +1,8 @@
+line-length = 100
+target-version = "py312"
+
+[lint]
+select = ["E", "F", "I", "W", "UP", "B"]
+# B008 flags function calls in argument defaults. Depends()/require() in
+# defaults is exactly how FastAPI declares dependencies — not a bug here.
+ignore = ["B008"]

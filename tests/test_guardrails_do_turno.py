@@ -14,6 +14,7 @@ Nada errava — só custava caro e demorava.
 import json
 
 import pytest
+
 from app.config import settings
 from app.graph import _estourou_o_teto
 

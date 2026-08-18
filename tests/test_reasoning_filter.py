@@ -10,6 +10,7 @@ o próximo provar o que ele é.
 """
 
 import pytest
+
 from app.providers import ReasoningFilter, strip_reasoning
 
 

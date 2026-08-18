@@ -29,8 +29,9 @@ def anyio_backend():
 def _apply_schema_migrations():
     """Kernel integration tests need only the tables the kernel itself uses —
     ver `kernel/tests/schema.sql` (autocontido, sem depender de `backend/`)."""
-    from app.config import settings
     from db_guard import exigir_banco_descartavel
+
+    from app.config import settings
 
     # Aplicar schema é escrita: vale a mesma recusa que protege o backend.
     exigir_banco_descartavel(settings.database_url)

@@ -4,6 +4,7 @@ import json
 import uuid
 
 import pytest
+
 from app.storage import register_artifact
 from app.tools import open_catalog_session, set_current_agent, set_run_context
 

@@ -11,6 +11,7 @@ Coluna de tudo estoura o contexto, e por isso continua limitada. Nome de tabela
 """
 
 import pytest
+
 from app import datasources
 
 pytestmark = pytest.mark.anyio

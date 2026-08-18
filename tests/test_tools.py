@@ -8,6 +8,7 @@ import uuid
 import psycopg
 import pytest
 import uvicorn
+
 from app.config import settings
 from tests.conftest import sse_events as _events
 

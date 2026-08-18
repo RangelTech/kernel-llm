@@ -4,6 +4,7 @@ import uuid
 
 import psycopg
 import pytest
+
 from app.config import settings
 from app.memories import extract_memories, recall
 from tests.conftest import sse_events as _events

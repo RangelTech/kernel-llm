@@ -16,6 +16,7 @@ precisar saber que especialista não enxerga histórico. O kernel diz isso a ele
 """
 
 import pytest
+
 from app.graph import (
     CLAUSULA_DO_ESPECIALISTA,
     WRITE_CONFIRMATION_CLAUSE,

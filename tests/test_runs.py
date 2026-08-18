@@ -6,6 +6,7 @@ Everything here needs Postgres (the checkpointer) — marked integration.
 import uuid
 
 import pytest
+
 from tests.conftest import sse_events as _events
 
 pytestmark = [pytest.mark.integration, pytest.mark.anyio]

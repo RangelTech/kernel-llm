@@ -6,6 +6,7 @@ import threading
 
 import pytest
 import uvicorn
+
 from app.config import settings
 from app.tools import open_catalog_session, set_current_agent, set_run_context
 

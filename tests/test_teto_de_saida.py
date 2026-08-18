@@ -12,6 +12,7 @@ artifact_id encadeia para gráfico, planilha e sandbox sem passar pelo modelo.
 import json
 
 import pytest
+
 from app.config import settings
 from app.graph import _limitar_saida, _run_specialist
 from app.providers import Completion, ToolCall

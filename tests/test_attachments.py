@@ -4,6 +4,7 @@ images becoming content blocks — all through the /v1/runs seam."""
 import uuid
 
 import pytest
+
 from app.storage import save_payload
 from tests.conftest import sse_events as _events
 
