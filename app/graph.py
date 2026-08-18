@@ -302,11 +302,16 @@ def _nota_dos_artefatos(descriptors: list[dict]) -> str:
     itens = "; ".join(
         f"{d.get('kind', 'arquivo')} \"{d.get('title', '')}\"" for d in descriptors
     )
+    links = "; ".join(
+        f"[{d.get('title', '')}](artifact:{d['artifact_id']})" for d in descriptors
+    )
     return (
         f"\n\n[NOTA DA PLATAFORMA] Já foram exibidos ao usuário nesta resposta: "
         f"{itens}. Ele está vendo isso na tela agora. "
-        "NUNCA diga que não consegue mostrar imagens, gráficos ou arquivos: "
-        "aponte o que está logo acima."
+        "NUNCA diga que não consegue mostrar imagens, gráficos ou arquivos. "
+        "Em vez de descrever onde o artefato está na tela, embuta na sua resposta "
+        "um link markdown para cada um usando exatamente este formato: "
+        f"{links}. Use o título tal como veio no descriptor, sem inventar nome novo."
     )
 
 

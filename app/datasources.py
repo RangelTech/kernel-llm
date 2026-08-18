@@ -79,6 +79,82 @@ def _query_sqlite(config: dict, _secret: str | None, sql: str, max_rows: int):
     return columns, _rows_to_python(rows)
 
 
+def _query_sqlserver(config: dict, secret: str | None, sql: str, max_rows: int):
+    import pymssql
+
+    conn = pymssql.connect(
+        server=config.get("host", "localhost"),
+        port=str(config.get("port", 1433)),
+        database=config.get("database", ""),
+        user=config.get("user", ""),
+        password=secret or "",
+        login_timeout=10,
+        timeout=60,
+    )
+    try:
+        with conn.cursor() as cursor:
+            cursor.execute(sql)
+            columns = [{"name": d[0], "type": str(d[1])} for d in cursor.description]
+            rows = cursor.fetchmany(max_rows)
+    finally:
+        conn.close()
+    return columns, _rows_to_python(rows)
+
+
+def _oracle_dsn(config: dict) -> str:
+    return "{}:{}/{}".format(
+        config.get("host", "localhost"),
+        int(config.get("port", 1521)),
+        config.get("database", config.get("service_name", "")),
+    )
+
+
+def _query_oracle(config: dict, secret: str | None, sql: str, max_rows: int):
+    import oracledb
+
+    conn = oracledb.connect(
+        user=config.get("user", ""),
+        password=secret or "",
+        dsn=_oracle_dsn(config),
+        tcp_connect_timeout=10,
+    )
+    try:
+        with conn.cursor() as cursor:
+            cursor.execute(sql)
+            columns = [{"name": d[0], "type": str(d[1])} for d in cursor.description]
+            rows = cursor.fetchmany(max_rows)
+    finally:
+        conn.close()
+    return columns, _rows_to_python(rows)
+
+
+def _firebird_dsn(config: dict) -> str:
+    host = config.get("host")
+    database = config.get("database", "")
+    if not host:
+        return database
+    port = config.get("port", 3050)
+    return f"{host}/{port}:{database}"
+
+
+def _query_firebird(config: dict, secret: str | None, sql: str, max_rows: int):
+    import firebird.driver as fbd
+
+    conn = fbd.connect(
+        database=_firebird_dsn(config),
+        user=config.get("user", ""),
+        password=secret or "",
+    )
+    try:
+        with conn.cursor() as cursor:
+            cursor.execute(sql)
+            columns = [{"name": d[0], "type": str(d[1])} for d in cursor.description]
+            rows = cursor.fetchmany(max_rows)
+    finally:
+        conn.close()
+    return columns, _rows_to_python(rows)
+
+
 def _bigquery_client(config: dict, secret: str | None):
     from google.cloud import bigquery
     from google.oauth2 import service_account
@@ -105,6 +181,9 @@ _ENGINES = {
     "mysql": _query_mysql,
     "sqlite": _query_sqlite,
     "bigquery": _query_bigquery,
+    "sqlserver": _query_sqlserver,
+    "oracle": _query_oracle,
+    "firebird": _query_firebird,
 }
 
 
@@ -132,6 +211,11 @@ _LIST_TABLE_NAMES_SQL = {
           FROM information_schema.tables
          WHERE table_schema = DATABASE()
          ORDER BY 1 LIMIT 500""",
+    "sqlserver": """
+        SELECT TOP 500 table_schema + '.' + table_name
+          FROM INFORMATION_SCHEMA.TABLES
+         WHERE table_schema NOT IN ('sys', 'INFORMATION_SCHEMA')
+         ORDER BY 1""",
 }
 
 _LIST_TABLES_SQL = {
@@ -145,6 +229,11 @@ _LIST_TABLES_SQL = {
           FROM information_schema.columns
          WHERE table_schema = DATABASE()
          ORDER BY 1, ordinal_position LIMIT 500""",
+    "sqlserver": """
+        SELECT TOP 500 table_schema + '.' + table_name, column_name, data_type
+          FROM INFORMATION_SCHEMA.COLUMNS
+         WHERE table_schema NOT IN ('sys', 'INFORMATION_SCHEMA')
+         ORDER BY 1, ordinal_position""",
 }
 
 
@@ -226,6 +315,68 @@ async def list_tables(datasource: dict) -> list[dict]:
             out.append(
                 {"table": table, "columns": [{"name": r[1], "type": r[2]} for r in info]}
             )
+        return out
+
+    if kind == "oracle":
+        # No information_schema in Oracle — ALL_TABLES/ALL_TAB_COLUMNS is the
+        # dialect's own catalog, scoped to what the connected user can see.
+        _, name_rows = await execute_query(
+            datasource,
+            "SELECT owner || '.' || table_name FROM all_tables"
+            " ORDER BY 1 FETCH FIRST 500 ROWS ONLY",
+            max_rows=500,
+        )
+        nomes = _escolhidas(datasource, [r[0] for r in name_rows])
+
+        async def colunas_de(nome: str):
+            owner, table_name = nome.split(".", 1)
+            _, rows = await execute_query(
+                datasource,
+                "SELECT column_name, data_type FROM all_tab_columns"
+                f" WHERE owner = '{owner}' AND table_name = '{table_name}'"
+                " ORDER BY column_id FETCH FIRST 100 ROWS ONLY",
+                max_rows=100,
+            )
+            return [{"name": r[0], "type": r[1]} for r in rows]
+
+        out = []
+        for posicao, nome in enumerate(nomes):
+            if posicao < TABELAS_COM_COLUNAS:
+                out.append({"table": nome, "columns": await colunas_de(nome)})
+            else:
+                out.append({"table": nome, "columns": _SEM_COLUNAS})
+        return out
+
+    if kind == "firebird":
+        # Firebird keeps its catalog in RDB$ system tables — no
+        # information_schema equivalent either. RDB$SYSTEM_FLAG = 0 excludes
+        # the system tables that ship with every database.
+        _, name_rows = await execute_query(
+            datasource,
+            "SELECT TRIM(rdb$relation_name) FROM rdb$relations"
+            " WHERE rdb$system_flag = 0 AND rdb$view_blr IS NULL"
+            " ORDER BY 1 ROWS 500",
+            max_rows=500,
+        )
+        nomes = _escolhidas(datasource, [r[0] for r in name_rows])
+
+        async def colunas_de(nome: str):
+            _, rows = await execute_query(
+                datasource,
+                "SELECT TRIM(rdb$field_name), TRIM(rdb$field_source)"
+                " FROM rdb$relation_fields"
+                f" WHERE rdb$relation_name = '{nome}'"
+                " ORDER BY rdb$field_position ROWS 100",
+                max_rows=100,
+            )
+            return [{"name": r[0], "type": r[1]} for r in rows]
+
+        out = []
+        for posicao, nome in enumerate(nomes):
+            if posicao < TABELAS_COM_COLUNAS:
+                out.append({"table": nome, "columns": await colunas_de(nome)})
+            else:
+                out.append({"table": nome, "columns": _SEM_COLUNAS})
         return out
 
     if kind == "bigquery":
@@ -351,6 +502,68 @@ def _write_sqlite(config: dict, _secret: str | None, sql: str):
         conn.close()
 
 
+def _write_sqlserver(config: dict, secret: str | None, sql: str):
+    import pymssql
+
+    conn = pymssql.connect(
+        server=config.get("host", "localhost"),
+        port=str(config.get("port", 1433)),
+        database=config.get("database", ""),
+        user=config.get("user", ""),
+        password=secret or "",
+        login_timeout=10,
+    )
+    try:
+        with conn.cursor() as cursor:
+            cursor.execute(sql)
+            count = cursor.rowcount
+            returned = None
+            if cursor.description is not None:
+                returned = [list(r) for r in cursor.fetchall()]
+        conn.commit()
+    finally:
+        conn.close()
+    return count, returned
+
+
+def _write_oracle(config: dict, secret: str | None, sql: str):
+    import oracledb
+
+    conn = oracledb.connect(
+        user=config.get("user", ""), password=secret or "", dsn=_oracle_dsn(config),
+    )
+    try:
+        with conn.cursor() as cursor:
+            cursor.execute(sql)
+            count = cursor.rowcount
+            returned = None
+            if cursor.description is not None:
+                returned = [list(r) for r in cursor.fetchall()]
+        conn.commit()
+    finally:
+        conn.close()
+    return count, returned
+
+
+def _write_firebird(config: dict, secret: str | None, sql: str):
+    import firebird.driver as fbd
+
+    conn = fbd.connect(
+        database=_firebird_dsn(config), user=config.get("user", ""), password=secret or "",
+    )
+    try:
+        with conn.cursor() as cursor:
+            cursor.execute(sql)
+            count = cursor.rowcount
+            returned = None
+            if cursor.description is not None:
+                returned = [list(r) for r in cursor.fetchall()]
+        conn.commit()
+    finally:
+        conn.close()
+    return count, returned
+
+
 def _write_bigquery(config: dict, secret: str | None, sql: str):
     client = _bigquery_client(config, secret)
     job = client.query(sql)
@@ -363,6 +576,9 @@ _WRITE_ENGINES = {
     "mysql": _write_mysql,
     "sqlite": _write_sqlite,
     "bigquery": _write_bigquery,
+    "sqlserver": _write_sqlserver,
+    "oracle": _write_oracle,
+    "firebird": _write_firebird,
 }
 
 

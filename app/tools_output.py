@@ -1,13 +1,147 @@
-"""Output tools: chart (Plotly JSON), XLSX and PDF — all consuming dataset
+"""Output tools: chart (matplotlib PNG), XLSX and PDF — all consuming dataset
 artifacts by reference, never re-running queries nor passing raw data
 through the model context. Registered on the same MCP catalog."""
 
 import io
 import json
 
-from app.tools import _context, catalog
+import matplotlib
+
+# Precisa vir antes de "import matplotlib.pyplot": ambiente headless (Cloud
+# Run) não tem display, e sem forçar o backend Agg o pyplot tenta abrir um
+# backend gráfico e quebra.
+matplotlib.use("Agg")
+
+import matplotlib.pyplot as plt  # noqa: E402 — depende do matplotlib.use acima
+
+from app.tools import _context, catalog  # noqa: E402
 
 _MAX_CHART_POINTS = 5_000
+
+# Paleta consistente com os outros documentos que a Rangel Tech já gera
+# (skill `relatorio`, `~/.claude/skills/relatorio/helpers.py`), adaptada para
+# o fundo escuro do tema do chat.
+_CHART_BG = "#0f172a"
+_CHART_FG = "#e2e8f0"
+_CHART_GRID = "#334155"
+_CHART_PALETTE = ["#4f8ef7", "#f7b84f", "#4fd18a", "#f76f6f", "#b98af7", "#4fd1c5"]
+_CHART_DPI = 160
+
+
+def _new_figure():
+    fig, ax = plt.subplots(figsize=(8, 4.5), dpi=_CHART_DPI)
+    fig.patch.set_facecolor(_CHART_BG)
+    ax.set_facecolor(_CHART_BG)
+    ax.tick_params(colors=_CHART_FG, labelsize=9)
+    for spine in ax.spines.values():
+        spine.set_color(_CHART_GRID)
+    ax.grid(True, color=_CHART_GRID, linewidth=0.6, alpha=0.6)
+    ax.set_axisbelow(True)
+    return fig, ax
+
+
+def _style_axes(ax, title: str):
+    if title:
+        ax.set_title(title, color=_CHART_FG, fontsize=12, fontweight="bold", pad=12)
+    ax.xaxis.label.set_color(_CHART_FG)
+    ax.yaxis.label.set_color(_CHART_FG)
+    legend = ax.get_legend()
+    if legend:
+        legend.get_frame().set_facecolor(_CHART_BG)
+        legend.get_frame().set_edgecolor(_CHART_GRID)
+        for text in legend.get_texts():
+            text.set_color(_CHART_FG)
+
+
+def _draw_bar(ax, x_values, series, horizontal=False):
+    n = len(series)
+    positions = range(len(x_values))
+    width = 0.8 / max(n, 1)
+    for i, (name, y_values) in enumerate(series):
+        offset = (i - (n - 1) / 2) * width
+        color = _CHART_PALETTE[i % len(_CHART_PALETTE)]
+        if horizontal:
+            ys = [p + offset for p in positions]
+            ax.barh(ys, y_values, height=width, label=name, color=color)
+        else:
+            xs = [p + offset for p in positions]
+            ax.bar(xs, y_values, width=width, label=name, color=color)
+    if horizontal:
+        ax.set_yticks(list(positions))
+        ax.set_yticklabels([str(v) for v in x_values])
+        ax.invert_yaxis()
+    else:
+        ax.set_xticks(list(positions))
+        ax.set_xticklabels([str(v) for v in x_values], rotation=0 if len(x_values) <= 8 else 45, ha="right")
+
+
+def _draw_stacked_bar(ax, x_values, series):
+    positions = range(len(x_values))
+    bottoms = [0.0] * len(x_values)
+    for i, (name, y_values) in enumerate(series):
+        color = _CHART_PALETTE[i % len(_CHART_PALETTE)]
+        ax.bar(list(positions), y_values, bottom=bottoms, label=name, color=color, width=0.6)
+        bottoms = [b + v for b, v in zip(bottoms, y_values)]
+    ax.set_xticks(list(positions))
+    ax.set_xticklabels([str(v) for v in x_values], rotation=0 if len(x_values) <= 8 else 45, ha="right")
+
+
+def _draw_line(ax, x_values, series):
+    for i, (name, y_values) in enumerate(series):
+        color = _CHART_PALETTE[i % len(_CHART_PALETTE)]
+        ax.plot(x_values, y_values, marker="o", label=name, color=color, linewidth=2)
+
+
+def _draw_area(ax, x_values, series):
+    for i, (name, y_values) in enumerate(series):
+        color = _CHART_PALETTE[i % len(_CHART_PALETTE)]
+        ax.fill_between(range(len(x_values)), y_values, step=None, alpha=0.35, color=color, label=name)
+        ax.plot(range(len(x_values)), y_values, color=color, linewidth=1.6)
+    ax.set_xticks(list(range(len(x_values))))
+    ax.set_xticklabels([str(v) for v in x_values], rotation=0 if len(x_values) <= 8 else 45, ha="right")
+
+
+def _draw_scatter(ax, x_values, series):
+    for i, (name, y_values) in enumerate(series):
+        color = _CHART_PALETTE[i % len(_CHART_PALETTE)]
+        ax.scatter(x_values, y_values, label=name, color=color)
+
+
+def _draw_pie(ax, x_values, series):
+    # Pizza só faz sentido com uma série; usa a primeira.
+    _, y_values = series[0]
+    colors = [_CHART_PALETTE[i % len(_CHART_PALETTE)] for i in range(len(x_values))]
+    ax.pie(
+        y_values,
+        labels=[str(v) for v in x_values],
+        colors=colors,
+        autopct="%1.0f%%",
+        textprops={"color": _CHART_FG, "fontsize": 9},
+    )
+    ax.set_facecolor(_CHART_BG)
+
+
+def _draw_hist(ax, x_values, series):
+    # Histograma: a "série y" não se aplica — cada coluna de x_values vira uma
+    # distribuição própria (a primeira, ou as várias colunas passadas em
+    # y_columns quando x_column repete uma coluna numérica).
+    for i, (name, y_values) in enumerate(series):
+        color = _CHART_PALETTE[i % len(_CHART_PALETTE)]
+        ax.hist(y_values, bins=min(20, max(5, len(y_values) // 3 or 5)), alpha=0.75, label=name, color=color)
+
+
+# Dispatch por tipo de gráfico — aceitar um chart_type novo é só registrar uma
+# função aqui, não reescrever a tool inteira.
+_CHART_DRAWERS = {
+    "bar": lambda ax, x, series: _draw_bar(ax, x, series, horizontal=False),
+    "barh": lambda ax, x, series: _draw_bar(ax, x, series, horizontal=True),
+    "line": _draw_line,
+    "area": _draw_area,
+    "scatter": _draw_scatter,
+    "pie": _draw_pie,
+    "hist": _draw_hist,
+    "stacked-bar": _draw_stacked_bar,
+}
 
 
 async def _load_dataset(artifact_id: str) -> tuple[dict | None, str]:
@@ -45,42 +179,45 @@ async def generate_chart(
     y_columns: str,
     title: str = "",
 ) -> str:
-    """Gera um gráfico interativo (Plotly) a partir de um dataset artifact.
-    chart_type: bar | line | scatter | pie. y_columns: nomes separados por
-    vírgula. Retorna um chart artifact que o usuário vê renderizado no chat."""
+    """Gera um gráfico (PNG via matplotlib) a partir de um dataset artifact.
+    chart_type: bar | barh | line | area | scatter | pie | hist | stacked-bar.
+    y_columns: nomes separados por vírgula. Retorna um artifact de imagem
+    (kind="image") que o usuário vê renderizado no chat — funciona em
+    qualquer canal (web, WhatsApp, Instagram), não só no navegador."""
     dataset, error = await _load_dataset(artifact_id)
     if error:
         return error
-    if chart_type not in ("bar", "line", "scatter", "pie"):
-        return f"ERRO: chart_type inválido: {chart_type}"
+    drawer = _CHART_DRAWERS.get(chart_type)
+    if drawer is None:
+        available = ", ".join(sorted(_CHART_DRAWERS))
+        return f"ERRO: chart_type inválido: {chart_type}. Tipos suportados: {available}"
 
     x_values = _column_values(dataset, x_column)
     if x_values is None:
         available = ", ".join(c["name"] for c in dataset["columns"])
         return f"ERRO: coluna x '{x_column}' não existe. Colunas: {available}"
 
-    traces = []
+    series = []
     for y_name in [c.strip() for c in y_columns.split(",") if c.strip()]:
         y_values = _column_values(dataset, y_name)
         if y_values is None:
             available = ", ".join(c["name"] for c in dataset["columns"])
             return f"ERRO: coluna y '{y_name}' não existe. Colunas: {available}"
-        if chart_type == "pie":
-            traces.append({"type": "pie", "labels": x_values, "values": y_values, "name": y_name})
-        else:
-            traces.append(
-                {
-                    "type": "scatter" if chart_type == "line" else chart_type,
-                    "mode": "lines+markers" if chart_type == "line" else None,
-                    "x": x_values,
-                    "y": y_values,
-                    "name": y_name,
-                }
-            )
-    figure = {
-        "data": [{k: v for k, v in t.items() if v is not None} for t in traces],
-        "layout": {"title": {"text": title}, "template": "plotly_dark", "height": 420},
-    }
+        series.append((y_name, y_values))
+    if not series:
+        return "ERRO: y_columns vazio — informe ao menos uma coluna"
+
+    fig, ax = _new_figure()
+    try:
+        drawer(ax, x_values, series)
+        _style_axes(ax, title)
+        if len(series) > 1 and chart_type != "pie":
+            ax.legend(loc="best", fontsize=8)
+        buffer = io.BytesIO()
+        fig.savefig(buffer, format="png", bbox_inches="tight", facecolor=fig.get_facecolor())
+    finally:
+        plt.close(fig)
+    payload = buffer.getvalue()
 
     from app.storage import register_artifact
 
@@ -89,12 +226,14 @@ async def generate_chart(
         tenant_id=context.get("tenant_id"),
         chat_id=context.get("chat_id"),
         agent_name=context.get("agent", ""),
-        kind="chart",
+        kind="image",
         title=title or f"Gráfico {chart_type}",
         schema_json={"chart_type": chart_type, "x": x_column, "y": y_columns},
         preview_json=None,
         row_count=len(x_values),
-        payload=json.dumps(figure, ensure_ascii=False, default=str).encode(),
+        payload=payload,
+        content_type="image/png",
+        extension="png",
     )
     return json.dumps(descriptor, ensure_ascii=False)
 

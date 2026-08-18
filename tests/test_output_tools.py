@@ -1,6 +1,5 @@
 """Output tools consuming dataset artifacts by reference (stub provider)."""
 
-import json
 import uuid
 
 import psycopg
@@ -93,13 +92,12 @@ async def test_chart_chains_from_dataset_without_requerying(client):
     )
     r2 = await client.post("/v1/runs", json=_payload("agora o gráfico", db))
     events2 = _events(r2.text)
-    charts = [d for e, d in events2 if e == "artifact" and d["kind"] == "chart"]
+    charts = [d for e, d in events2 if e == "artifact" and d["kind"] == "image"]
     assert len(charts) == 1
 
-    figure = json.loads(load_payload(_storage_path(charts[0]["artifact_id"])))
-    assert figure["data"][0]["type"] == "bar"
-    assert figure["data"][0]["x"] == ["fev", "jan", "mar"]
-    assert figure["layout"]["title"]["text"] == "Vendas"
+    # Gráfico agora é PNG (matplotlib), não JSON Plotly — ux-04-graficos-em-imagem.md.
+    png_bytes = load_payload(_storage_path(charts[0]["artifact_id"]))
+    assert png_bytes[:8] == b"\x89PNG\r\n\x1a\n"
 
 
 def _storage_path(artifact_id: str) -> str:
@@ -194,4 +192,4 @@ async def test_chart_refuses_foreign_tenant_artifact(client):
     tool_events = [d for e, d in events if e == "tool"]
     chart_calls = [t for t in tool_events if t["tool"] == "generate_chart"]
     assert chart_calls and chart_calls[0]["status"] == "ok"  # tool ran, returned ERRO text
-    assert not [d for e, d in events if e == "artifact" and d["kind"] == "chart"]
+    assert not [d for e, d in events if e == "artifact" and d["kind"] == "image"]
