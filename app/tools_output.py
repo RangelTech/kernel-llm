@@ -53,6 +53,13 @@ def _style_axes(ax, title: str):
             text.set_color(_CHART_FG)
 
 
+def _set_categorical_xticks(ax, x_values):
+    labels = [str(v) for v in x_values]
+    rotation = 0 if len(x_values) <= 8 else 45
+    ax.set_xticks(list(range(len(x_values))))
+    ax.set_xticklabels(labels, rotation=rotation, ha="right")
+
+
 def _draw_bar(ax, x_values, series, horizontal=False):
     n = len(series)
     positions = range(len(x_values))
@@ -71,8 +78,7 @@ def _draw_bar(ax, x_values, series, horizontal=False):
         ax.set_yticklabels([str(v) for v in x_values])
         ax.invert_yaxis()
     else:
-        ax.set_xticks(list(positions))
-        ax.set_xticklabels([str(v) for v in x_values], rotation=0 if len(x_values) <= 8 else 45, ha="right")
+        _set_categorical_xticks(ax, x_values)
 
 
 def _draw_stacked_bar(ax, x_values, series):
@@ -81,9 +87,8 @@ def _draw_stacked_bar(ax, x_values, series):
     for i, (name, y_values) in enumerate(series):
         color = _CHART_PALETTE[i % len(_CHART_PALETTE)]
         ax.bar(list(positions), y_values, bottom=bottoms, label=name, color=color, width=0.6)
-        bottoms = [b + v for b, v in zip(bottoms, y_values)]
-    ax.set_xticks(list(positions))
-    ax.set_xticklabels([str(v) for v in x_values], rotation=0 if len(x_values) <= 8 else 45, ha="right")
+        bottoms = [b + v for b, v in zip(bottoms, y_values, strict=True)]
+    _set_categorical_xticks(ax, x_values)
 
 
 def _draw_line(ax, x_values, series):
@@ -95,10 +100,10 @@ def _draw_line(ax, x_values, series):
 def _draw_area(ax, x_values, series):
     for i, (name, y_values) in enumerate(series):
         color = _CHART_PALETTE[i % len(_CHART_PALETTE)]
-        ax.fill_between(range(len(x_values)), y_values, step=None, alpha=0.35, color=color, label=name)
-        ax.plot(range(len(x_values)), y_values, color=color, linewidth=1.6)
-    ax.set_xticks(list(range(len(x_values))))
-    ax.set_xticklabels([str(v) for v in x_values], rotation=0 if len(x_values) <= 8 else 45, ha="right")
+        positions = range(len(x_values))
+        ax.fill_between(positions, y_values, alpha=0.35, color=color, label=name)
+        ax.plot(positions, y_values, color=color, linewidth=1.6)
+    _set_categorical_xticks(ax, x_values)
 
 
 def _draw_scatter(ax, x_values, series):
@@ -127,7 +132,8 @@ def _draw_hist(ax, x_values, series):
     # y_columns quando x_column repete uma coluna numérica).
     for i, (name, y_values) in enumerate(series):
         color = _CHART_PALETTE[i % len(_CHART_PALETTE)]
-        ax.hist(y_values, bins=min(20, max(5, len(y_values) // 3 or 5)), alpha=0.75, label=name, color=color)
+        bins = min(20, max(5, len(y_values) // 3 or 5))
+        ax.hist(y_values, bins=bins, alpha=0.75, label=name, color=color)
 
 
 # Dispatch por tipo de gráfico — aceitar um chart_type novo é só registrar uma

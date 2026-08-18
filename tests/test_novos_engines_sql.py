@@ -118,9 +118,8 @@ def test_write_oracle_commits(monkeypatch):
 # ---------- Firebird (firebird-driver) ----------
 
 def test_firebird_dsn_with_host_and_without():
-    assert datasources._firebird_dsn({"host": "fbhost", "port": 3050, "database": "/data/db.fdb"}) == (
-        "fbhost/3050:/data/db.fdb"
-    )
+    config = {"host": "fbhost", "port": 3050, "database": "/data/db.fdb"}
+    assert datasources._firebird_dsn(config) == "fbhost/3050:/data/db.fdb"
     assert datasources._firebird_dsn({"database": "/data/db.fdb"}) == "/data/db.fdb"
 
 
