@@ -1,0 +1,60 @@
+#!/usr/bin/env bash
+# Deploy the kernel (LangGraph) to Cloud Run (project eduk-prd-lake).
+#
+# Split de repo (agent-llm mega spec, infra-05): este repo era `kernel/`
+# dentro do monorepo `agent-platform`. Backend+frontend continuam lá,
+# deployando na VPS (rangeltech.net) — não aqui.
+#
+# Kernel público + shared secret (infra-04): sem metadata server fora do GCP,
+# a proteção é KERNEL_INTERNAL_TOKEN via env var direta (--set-env-vars, NÃO
+# --set-secrets — decisão infra-05: minimizar Secret Manager, token vem do
+# GitHub Actions secret KERNEL_INTERNAL_TOKEN neste repo).
+#
+# Usage: ./infra/deploy.sh kernel  (KERNEL_INTERNAL_TOKEN precisa estar no ambiente)
+set -euo pipefail
+
+PROJECT=eduk-prd-lake
+REGION=us-central1
+REPO=us-central1-docker.pkg.dev/$PROJECT/cloud-run-source-deploy
+RUNTIME_SA=devlake@eduk-prd-lake.iam.gserviceaccount.com
+
+target=${1:-kernel}
+cd "$(dirname "$0")/.."
+SHORT_SHA=$(git rev-parse --short HEAD)
+GCLOUD_BIN=${GCLOUD_BIN:-gcloud}
+
+SOURCE_DIRS=(app infra .github)
+if [ -n "$(git status --porcelain --untracked-files=normal -- "${SOURCE_DIRS[@]}")" ]; then
+  echo "source tree is dirty; commit source changes before deploy" >&2
+  git status --short --untracked-files=normal -- "${SOURCE_DIRS[@]}" >&2
+  exit 1
+fi
+
+build() {
+  local service=$1
+  "$GCLOUD_BIN" builds submit --project=$PROJECT \
+    --config=infra/cloudbuild-$service.yaml \
+    --substitutions=SHORT_SHA=$SHORT_SHA .
+}
+
+deploy_kernel() {
+  : "${KERNEL_INTERNAL_TOKEN:?KERNEL_INTERNAL_TOKEN precisa estar setado no ambiente antes de rodar}"
+  build kernel
+  "$GCLOUD_BIN" run deploy teste-ia-kernel \
+    --project=$PROJECT --region=$REGION \
+    --image=$REPO/teste_ia-kernel:$SHORT_SHA \
+    --service-account=$RUNTIME_SA \
+    --set-secrets=DATABASE_URL=teste-ia-database-url:latest,SERPER_API_KEY=teste-ia-serper-key:latest,S3_ACCESS_KEY_ID=teste-ia-s3-access-key:latest,S3_SECRET_ACCESS_KEY=teste-ia-s3-secret-key:latest \
+    --set-env-vars="ENABLE_STUB_CONTROL=false,STORAGE_BACKEND=s3,S3_BUCKET=teste-ia,S3_ENDPOINT_URL=https://storage.rangeltech.net,S3_PUBLIC_BASE_URL=https://storage.rangeltech.net/teste-ia,S3_REGION=us-east-1,S3_PREFIX=agent-llm,INTERNAL_TOKEN=${KERNEL_INTERNAL_TOKEN}" \
+    --allow-unauthenticated \
+    --memory=1Gi --cpu=1 --min-instances=0 --max-instances=3 \
+    --timeout=600
+  # NOTA: se INTERNAL_TOKEN ficar vazio por engano, require_internal_auth()
+  # no kernel não bloqueia NADA — ver app/runs.py, é fail-open por padrão
+  # (modo dev), não fail-closed. O `:?` acima recusa rodar sem o token.
+}
+
+case $target in
+  kernel) deploy_kernel ;;
+  *) echo "usage: $0 kernel" >&2; exit 1 ;;
+esac
