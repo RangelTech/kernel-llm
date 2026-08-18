@@ -40,6 +40,13 @@ build() {
 deploy_kernel() {
   : "${KERNEL_INTERNAL_TOKEN:?KERNEL_INTERNAL_TOKEN precisa estar setado no ambiente antes de rodar}"
   build kernel
+  # INTERNAL_TOKEN pode já existir na revisão anterior como referência de
+  # Secret Manager (deploy intermediário durante o split, infra-05) — Cloud
+  # Run recusa trocar uma env var de "secret" pra "literal" no mesmo comando
+  # sem removê-la explicitamente primeiro.
+  "$GCLOUD_BIN" run services update teste-ia-kernel \
+    --project=$PROJECT --region=$REGION \
+    --remove-secrets=INTERNAL_TOKEN 2>/dev/null || true
   "$GCLOUD_BIN" run deploy teste-ia-kernel \
     --project=$PROJECT --region=$REGION \
     --image=$REPO/teste_ia-kernel:$SHORT_SHA \
