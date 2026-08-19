@@ -846,6 +846,14 @@ def _ping_mongo(config: dict, secret: str | None) -> None:
     client.admin.command("ping")
 
 
+_TEST_CONNECTION_PROBE = {
+    # Firebird e Oracle não aceitam SELECT sem FROM — cada engine tem sua
+    # pseudo-tabela de 1 linha própria pra esse tipo de probe.
+    "firebird": "SELECT 1 FROM RDB$DATABASE",
+    "oracle": "SELECT 1 FROM DUAL",
+}
+
+
 async def test_connection(datasource: dict) -> tuple[bool, str]:
     try:
         if datasource["kind"] == "mongodb":
@@ -853,7 +861,8 @@ async def test_connection(datasource: dict) -> tuple[bool, str]:
                 lambda: _ping_mongo(datasource.get("config", {}), datasource.get("secret"))
             )
         else:
-            await execute_query(datasource, "SELECT 1", max_rows=1)
+            probe = _TEST_CONNECTION_PROBE.get(datasource["kind"], "SELECT 1")
+            await execute_query(datasource, probe, max_rows=1)
         return True, ""
     except Exception as exc:  # noqa: BLE001 — the point is reporting it
         return False, str(exc)[:500]
