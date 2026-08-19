@@ -187,6 +187,128 @@ _ENGINES = {
 }
 
 
+# ---------------------------------------------------------------------------
+# MongoDB — não é SQL: sem SELECT, sem `ensure_readonly`, sem `_ENGINES`. A
+# tool do agente (`query_mongo` em app/tools.py) chama `query_mongo` abaixo
+# diretamente em vez de passar por `execute_query`. Leitura é garantida por
+# desenho: a função nunca expõe insert/update/delete/aggregate-com-$out, só
+# `find` com filtro/projeção/limite.
+# ---------------------------------------------------------------------------
+
+
+def _mongo_client(config: dict, secret: str | None):
+    import pymongo
+
+    uri = config.get("uri")
+    if uri:
+        return pymongo.MongoClient(uri, serverSelectionTimeoutMS=10_000)
+    host = config.get("host", "localhost")
+    port = int(config.get("port", 27017))
+    user = config.get("user")
+    kwargs = {"serverSelectionTimeoutMS": 10_000, "connectTimeoutMS": 10_000}
+    if user:
+        kwargs["username"] = user
+        kwargs["password"] = secret or ""
+        kwargs["authSource"] = config.get("auth_source", "admin")
+    return pymongo.MongoClient(host, port, **kwargs)
+
+
+def _mongo_database(config: dict, secret: str | None):
+    client = _mongo_client(config, secret)
+    return client[config.get("database", "")]
+
+
+def _query_mongo(
+    config: dict,
+    secret: str | None,
+    collection: str,
+    filter_: dict,
+    projection: dict | None,
+    limit: int,
+):
+    db = _mongo_database(config, secret)
+    cursor = db[collection].find(filter_ or {}, projection or None)
+    docs = list(cursor.limit(limit))
+    return _mongo_docs_to_rows(docs)
+
+
+def _mongo_docs_to_rows(docs: list[dict]) -> tuple[list[dict], list[list]]:
+    """Documents don't share a fixed shape; the union of keys across the
+    sampled page becomes the column set so the artifact table stays sane even
+    when documents disagree on fields (missing ones come back as None)."""
+    columns_order: list[str] = []
+    seen = set()
+    for doc in docs:
+        for key in doc:
+            if key not in seen:
+                seen.add(key)
+                columns_order.append(key)
+    columns = [{"name": c, "type": "mixed"} for c in columns_order]
+    rows = [[_mongo_value(doc.get(c)) for c in columns_order] for doc in docs]
+    return columns, rows
+
+
+def _mongo_value(value):
+    # ObjectId, datetime etc. are not JSON-serializable as-is; the callers
+    # already default=str downstream, but converting here keeps this module
+    # usable without that assumption (e.g. from a future non-JSON caller).
+    if value is None or isinstance(value, (str, int, float, bool)):
+        return value
+    if isinstance(value, dict):
+        return {k: _mongo_value(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_mongo_value(v) for v in value]
+    return str(value)
+
+
+async def query_mongo(
+    datasource: dict,
+    collection: str,
+    filter_: dict,
+    projection: dict | None,
+    max_rows: int,
+):
+    """(columns, rows) from a read-only `find` against one Mongo collection."""
+    return await anyio.to_thread.run_sync(
+        lambda: _query_mongo(
+            datasource.get("config", {}),
+            datasource.get("secret"),
+            collection,
+            filter_,
+            projection,
+            max_rows,
+        )
+    )
+
+
+def _list_mongo_collections(config: dict, secret: str | None) -> list[dict]:
+    db = _mongo_database(config, secret)
+    nomes = sorted(db.list_collection_names())
+    out = []
+    for posicao, nome in enumerate(nomes):
+        if posicao >= TABELAS_COM_COLUNAS:
+            out.append({"table": nome, "columns": _SEM_COLUNAS})
+            continue
+        # Campos inferidos por amostragem (Mongo não tem schema declarado) —
+        # olhar alguns documentos é o único jeito honesto de dizer "o que
+        # existe aqui" sem escanear a coleção inteira.
+        sample = list(db[nome].find({}, limit=20))
+        campos: list[str] = []
+        visto = set()
+        for doc in sample:
+            for key in doc:
+                if key not in visto:
+                    visto.add(key)
+                    campos.append(key)
+        columns = (
+            [{"name": c, "type": "mixed"} for c in campos]
+            if campos
+            else "coleção vazia ou sem amostra disponível"
+        )
+        out.append({"table": nome, "columns": columns})
+    return out
+
+
 async def execute_query(datasource: dict, sql: str, max_rows: int):
     """(columns, rows) for a read-only query against the datasource."""
     ensure_readonly(sql)
@@ -404,6 +526,13 @@ async def list_tables(datasource: dict) -> list[dict]:
             return out
 
         return await anyio.to_thread.run_sync(_bq)
+
+    if kind == "mongodb":
+        return await anyio.to_thread.run_sync(
+            lambda: _list_mongo_collections(
+                datasource.get("config", {}), datasource.get("secret")
+            )
+        )
 
     raise ValueError(f"tipo de datasource não suportado: {kind}")
 
@@ -712,9 +841,19 @@ async def execute_transaction(
     return [{"table": t, **r} for t, r in zip(tables, rows, strict=True)]
 
 
+def _ping_mongo(config: dict, secret: str | None) -> None:
+    client = _mongo_client(config, secret)
+    client.admin.command("ping")
+
+
 async def test_connection(datasource: dict) -> tuple[bool, str]:
     try:
-        await execute_query(datasource, "SELECT 1", max_rows=1)
+        if datasource["kind"] == "mongodb":
+            await anyio.to_thread.run_sync(
+                lambda: _ping_mongo(datasource.get("config", {}), datasource.get("secret"))
+            )
+        else:
+            await execute_query(datasource, "SELECT 1", max_rows=1)
         return True, ""
     except Exception as exc:  # noqa: BLE001 — the point is reporting it
         return False, str(exc)[:500]

@@ -242,6 +242,80 @@ async def run_sql_query(datasource: str, query: str, title: str = "") -> str:
     return resultado
 
 
+@catalog.tool()
+async def query_mongo(
+    datasource: str,
+    collection: str,
+    filter_json: str = "{}",
+    projection_json: str = "",
+    limit: int = 100,
+    title: str = "",
+) -> str:
+    """Consulta uma fonte de dados MongoDB (NÃO use run_sql_query para Mongo —
+    não é SQL). Sempre LEITURA: executa um `find` com filtro e, opcionalmente,
+    projeção de campos; nunca grava, atualiza nem apaga. `filter_json` e
+    `projection_json` são strings JSON no formato do MongoDB (ex.:
+    filter_json='{"status": "ativo"}', projection_json='{"nome": 1, "_id": 0}').
+    `collection` é o nome da coleção (veja describe_datasources). Retorna um
+    dataset artifact com os documentos encontrados."""
+    from app.config import settings
+    from app.datasources import query_mongo as _run_query_mongo
+    from app.storage import register_artifact
+
+    context = _context()
+    source = context.get("datasources", {}).get(datasource)
+    if source is None:
+        available = ", ".join(context.get("datasources", {})) or "(nenhuma)"
+        return f"ERRO: fonte '{datasource}' não existe. Disponíveis: {available}"
+    if source.get("kind") != "mongodb":
+        return f"ERRO: '{datasource}' não é uma fonte MongoDB (kind={source.get('kind')})"
+
+    try:
+        filtro = json.loads(filter_json or "{}")
+        if not isinstance(filtro, dict):
+            return "ERRO: filter_json deve ser um objeto JSON"
+        projecao = json.loads(projection_json) if projection_json else None
+        if projecao is not None and not isinstance(projecao, dict):
+            return "ERRO: projection_json deve ser um objeto JSON"
+    except json.JSONDecodeError as exc:
+        return f"ERRO: JSON inválido em filter_json/projection_json: {exc}"
+
+    max_rows = min(int(limit) if limit else settings.sql_max_rows, settings.sql_max_rows)
+    cache = _cache_de_leitura()
+    chave = _chave_de_leitura(
+        datasource, f"{collection}\n{json.dumps(filtro, sort_keys=True)}\n{max_rows}"
+    )
+    if chave in cache:
+        return (
+            "AVISO: esta consulta já foi executada neste turno; resultado abaixo "
+            "reaproveitado. Se ele não responde à pergunta, mude a consulta em vez "
+            "de repeti-la.\n\n" + cache[chave]
+        )
+
+    try:
+        columns, rows = await _run_query_mongo(source, collection, filtro, projecao, max_rows)
+    except Exception as exc:  # noqa: BLE001 — the model needs the error to retry
+        return f"ERRO na consulta: {exc}"
+
+    preview = rows[: settings.artifact_preview_rows]
+    descriptor = await register_artifact(
+        tenant_id=context.get("tenant_id"),
+        chat_id=context.get("chat_id"),
+        agent_name=context.get("agent", ""),
+        kind="dataset",
+        title=title or f"Consulta em {datasource}.{collection}",
+        schema_json=columns,
+        preview_json=preview,
+        row_count=len(rows),
+        payload=json.dumps(
+            {"columns": columns, "rows": rows}, ensure_ascii=False, default=str
+        ).encode(),
+    )
+    resultado = json.dumps(descriptor, ensure_ascii=False, default=str)
+    cache[chave] = resultado
+    return resultado
+
+
 async def _load_dataset_for(context: dict, artifact_id: str) -> dict | None:
     from app.storage import get_artifact, load_payload
 
