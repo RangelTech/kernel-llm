@@ -161,7 +161,7 @@ async def test_query_mongo_tool_materializes_dataset_artifact(client):
     events = _events(r.text)
 
     artifact_events = [d for e, d in events if e == "artifact"]
-    assert len(artifact_events) == 1
+    assert len(artifact_events) == 1, f"DEBUG eventos: {events}"
     assert artifact_events[0]["kind"] == "dataset"
 
     tool_events = [d for e, d in events if e == "tool"]
