@@ -19,6 +19,42 @@ jobs:
         options: >-
           --health-cmd "pg_isready -U agent -d agent_llm"
           --health-interval 5s --health-timeout 3s --health-retries 10
+      # Datasources novos (produto-02, qa-02 seção 1): cada engine sobe como
+      # container descartável do próprio job de CI e morre com ele — nenhum
+      # toca a VPS (infra-09 proíbe SSH ad-hoc pra isso). Sem health-cmd
+      # portável pros 4 (cada driver tem seu próprio protocolo de "pronto");
+      # os testes que os usam (tests/test_datasources_*_ci.py) fazem retry de
+      # conexão com o driver real antes de seguir, e são pulados sozinhos
+      # (skipif) se a variável HOST correspondente não estiver setada — não
+      # quebram um `pytest` local sem Docker.
+      mssql:
+        image: mcr.microsoft.com/mssql/server:2022-latest
+        env:
+          ACCEPT_EULA: "Y"
+          MSSQL_SA_PASSWORD: "TestPassw0rd!"
+        ports: ["1433:1433"]
+      firebird:
+        image: jacobalberty/firebird:v4.0
+        env:
+          ISC_PASSWORD: "TestPassw0rd!"
+          FIREBIRD_DATABASE: test.fdb
+        ports: ["3050:3050"]
+      mongo:
+        image: mongo:7
+        ports: ["27017:27017"]
+      # Desvio de spec: `container-registry.oracle.com/database/free` (citada
+      # na spec) exige login autenticado (conta Oracle SSO) mesmo pra puxar a
+      # imagem gratuita — inviável num runner público sem guardar credencial
+      # Oracle como secret. `gvenzl/oracle-free` é a alternativa comunitária
+      # feita pra CI (pull público, healthcheck embutido), mesmo motor
+      # Oracle Database Free por trás. Ver test_datasources_oracle_ci.py.
+      oracle:
+        image: gvenzl/oracle-free:23-slim
+        env:
+          ORACLE_PASSWORD: "TestPassw0rd1"
+          APP_USER: testuser
+          APP_USER_PASSWORD: "TestPassw0rd1"
+        ports: ["1521:1521"]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -31,6 +67,14 @@ jobs:
       - name: Test (unit + integration)
         env:
           DATABASE_URL: postgresql://agent:agent@localhost:5433/agent_llm
+          MSSQL_HOST: localhost
+          MSSQL_PASSWORD: "TestPassw0rd!"
+          FIREBIRD_HOST: localhost
+          FIREBIRD_PASSWORD: "TestPassw0rd!"
+          MONGO_HOST: localhost
+          ORACLE_HOST: localhost
+          ORACLE_USER: testuser
+          ORACLE_PASSWORD: "TestPassw0rd1"
         run: python -m pytest -q -m "integration or not integration"
 
   # Split de repo (agent-llm mega spec, infra-05): este repo era `kernel/`
