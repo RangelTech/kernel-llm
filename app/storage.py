@@ -196,6 +196,17 @@ async def register_artifact(
 async def get_artifact(artifact_id: str) -> dict | None:
     from app.trace import _get_pool
 
+    # O supervisor é instruído (graph.py:_nota_dos_artefatos) a embutir links
+    # markdown no formato "[titulo](artifact:UUID)" nas respostas — é assim
+    # que o artefato aparece pro modelo no histórico da conversa. Quando um
+    # turno seguinte pede pra encadear esse artefato (ex.: "exporte esse
+    # resultado"), o modelo naturalmente copia o texto que já viu, prefixo
+    # "artifact:" incluso, como argumento da tool. Sem isso o cast pra uuid
+    # no WHERE explode (psycopg.errors.InvalidTextRepresentation) e o erro
+    # cru do driver chega ao usuário em vez de um retry limpo.
+    if artifact_id.startswith("artifact:"):
+        artifact_id = artifact_id[len("artifact:") :]
+
     pool = await _get_pool()
     async with pool.connection() as conn:
         cursor = await conn.execute(
