@@ -105,6 +105,32 @@ async def test_sandbox_blocks_network(client):
     assert "bloqueado" in body["stdout"]
 
 
+async def test_sandbox_ssl_import_does_not_crash(client):
+    """Real bug (pente_fino_qa 18-19/08): the network-block patch used to
+    replace `socket.socket` outright with a plain function. Any code that
+    (transitively) imports `ssl` -- `urllib.request`, `requests`,
+    `http.client`, etc. -- triggers `ssl.py`'s `class SSLSocket(socket):`,
+    which broke with `TypeError: function() argument 'code' must be code,
+    not str` because a function isn't a usable base class. Verified against
+    production tool_calls trace: this fired on ~every execute_python call
+    that imported urllib.request, unrelated to the rest of the code."""
+    _fresh_context()
+    code = (
+        "import urllib.request\n"
+        "try:\n"
+        "    urllib.request.urlopen('https://api.github.com', timeout=3)\n"
+        "    print('REDE ABERTA')\n"
+        "except RuntimeError as e:\n"
+        "    print('bloqueado:', e)\n"
+    )
+    async with open_catalog_session() as session:
+        result = await session.call_tool("execute_python", {"code": code})
+    body = json.loads(_tool_text(result))
+    assert "function() argument" not in body["stderr"]
+    assert "REDE ABERTA" not in body["stdout"]
+    assert "bloqueado" in body["stdout"]
+
+
 async def test_forecast_generates_projection_and_chart(client):
     artifact_id = await _seed_dataset(monthly=True)
     _fresh_context()

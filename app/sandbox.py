@@ -23,10 +23,24 @@ _RUNNER_TEMPLATE = '''
 import json, sys
 
 # Block network before any user code runs.
+#
+# Patching `socket.socket` itself (replacing the class with a plain function)
+# broke every later import of the stdlib `ssl` module: `ssl.py` defines
+# `class SSLSocket(socket):` at import time, and a plain function is not a
+# usable base class -- CPython's class-creation machinery blew up with
+# `TypeError: function() argument 'code' must be code, not str` (raised deep
+# in `type.__new__`/`FunctionType`, nothing to do with the sandboxed code
+# itself). Any user code that (transitively) imports `ssl` -- `urllib.request`,
+# `requests`, `http.client`, `smtplib`, `pandas` reading from an https URL,
+# etc. -- imports `http.client` -> `ssl` and hit this on first import.
+#
+# Patch `__init__` instead: `socket.socket` stays a real class (so `ssl.py`
+# can still subclass it), but instantiating one still raises immediately,
+# same as before.
 import socket as _socket
 def _no_net(*_a, **_k):
     raise RuntimeError("acesso à rede é bloqueado no sandbox")
-_socket.socket = _no_net
+_socket.socket.__init__ = _no_net
 _socket.create_connection = _no_net
 
 _IN = json.load(open(sys.argv[1], encoding="utf-8"))
