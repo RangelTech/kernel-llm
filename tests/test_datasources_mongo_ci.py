@@ -142,12 +142,20 @@ async def _script(client, rules, default="ok"):
 
 
 async def test_query_mongo_tool_materializes_dataset_artifact(client):
+    # StubScript.reply_for casa a PRIMEIRA needle cuja substring aparece no
+    # prompt (case-insensitive) — se a needle do passo 1 também for
+    # substring do task que o passo 1 manda pro especialista, o especialista
+    # recebe a MESMA resposta do supervisor de volta (tenta chamar a tool
+    # "dados_agent" nele mesmo, erro imediato, 0 artifacts). Achado rodando
+    # contra o container real: "clientes ativos" era substring tanto da
+    # mensagem do usuário quanto do task encaminhado ao especialista.
+    # Needles agora são disjuntas de propósito.
     await _script(
         client,
         [
-            ["clientes ativos", 'TOOL:dados_agent:{"task": "liste clientes ativos"}'],
+            ["quero ver os clientes ativos", 'TOOL:dados_agent:{"task": "busca no mongo"}'],
             [
-                "liste clientes ativos",
+                "busca no mongo",
                 'TOOL:query_mongo:{"datasource": "crm", "collection": "test_clientes",'
                 ' "filter_json": "{\\"ativo\\": true}"}',
             ],
@@ -155,8 +163,6 @@ async def test_query_mongo_tool_materializes_dataset_artifact(client):
         ],
         default="feito",
     )
-    # A needle do script precisa ser substring literal da mensagem — "estão"
-    # no meio quebraria o match (achado ao rodar contra o container real).
     r = await client.post("/v1/runs", json=_payload("quero ver os clientes ativos"))
     events = _events(r.text)
 
