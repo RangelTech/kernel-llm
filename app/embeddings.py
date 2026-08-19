@@ -27,10 +27,15 @@ async def embed_texts(spec: dict, texts: list[str]) -> list[list[float]]:
 
     import litellm
 
-    model = spec.get("model") or "gemini/text-embedding-004"
+    # "gemini/text-embedding-004" foi descontinuado pela Google (confirmado em
+    # produção 2026-08-19: toda ingestão de RAG falhava com
+    # litellm.NotFoundError 404 "models/text-embedding-004 is not found").
+    # gemini-embedding-001 é o substituto ativo; ele é 3072-dim por padrão,
+    # então pedimos explicitamente os 768 que o resto da plataforma assume
+    # (coluna pgvector, DIMENSIONS acima).
+    model = spec.get("model") or "gemini/gemini-embedding-001"
     kwargs: dict = {"model": model, "input": texts, "api_key": spec.get("api_key")}
-    if "text-embedding-3" in model:
-        # OpenAI models are 1536-native; request the shared 768 dims.
+    if "text-embedding-3" in model or "gemini-embedding" in model:
         kwargs["dimensions"] = DIMENSIONS
     response = await litellm.aembedding(**kwargs)
     return [item["embedding"] for item in response.data]
