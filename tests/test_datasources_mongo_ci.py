@@ -155,7 +155,9 @@ async def test_query_mongo_tool_materializes_dataset_artifact(client):
         ],
         default="feito",
     )
-    r = await client.post("/v1/runs", json=_payload("quais clientes estão ativos?"))
+    # A needle do script precisa ser substring literal da mensagem — "estão"
+    # no meio quebraria o match (achado ao rodar contra o container real).
+    r = await client.post("/v1/runs", json=_payload("quero ver os clientes ativos"))
     events = _events(r.text)
 
     artifact_events = [d for e, d in events if e == "artifact"]
