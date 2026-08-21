@@ -95,8 +95,6 @@ jobs:
       id-token: write
     steps:
       - uses: actions/checkout@v4
-      - name: Debug vars context
-        run: echo '${{ toJSON(vars) }}'
       - id: auth
         uses: google-github-actions/auth@v2
         with:
