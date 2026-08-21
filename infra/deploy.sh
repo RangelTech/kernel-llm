@@ -56,14 +56,14 @@ deploy_kernel() {
   # Secret Manager (deploy intermediário durante o split, infra-05) — Cloud
   # Run recusa trocar uma env var de "secret" pra "literal" no mesmo comando
   # sem removê-la explicitamente primeiro.
-  "$GCLOUD_BIN" run services update teste-ia-kernel \
+  "$GCLOUD_BIN" run services update kernel-llm \
     --project=$PROJECT --region=$REGION \
     --remove-secrets=INTERNAL_TOKEN 2>/dev/null || true
-  "$GCLOUD_BIN" run deploy teste-ia-kernel \
+  "$GCLOUD_BIN" run deploy kernel-llm \
     --project=$PROJECT --region=$REGION \
     --image=$REPO/teste_ia-kernel:$SHORT_SHA \
-    --set-secrets=DATABASE_URL=kernel-database-url:latest,S3_ACCESS_KEY_ID=kernel-s3-access-key:latest,S3_SECRET_ACCESS_KEY=kernel-s3-secret-key:latest \
-    --set-env-vars="ENABLE_STUB_CONTROL=false,STORAGE_BACKEND=s3,S3_BUCKET=teste-ia,S3_ENDPOINT_URL=https://storage.rangeltech.net,S3_PUBLIC_BASE_URL=https://storage.rangeltech.net/teste-ia,S3_REGION=us-east-1,S3_PREFIX=agent-llm,INTERNAL_TOKEN=${KERNEL_INTERNAL_TOKEN}" \
+    --set-secrets=DATABASE_URL=kernel-database-url:latest,S3_ACCESS_KEY_ID=gcs-hmac-access-key:latest,S3_SECRET_ACCESS_KEY=gcs-hmac-secret-key:latest \
+    --set-env-vars="ENABLE_STUB_CONTROL=false,STORAGE_BACKEND=s3,S3_BUCKET=rangel-tech-storage,S3_ENDPOINT_URL=https://storage.googleapis.com,S3_PUBLIC_BASE_URL=https://storage.googleapis.com/rangel-tech-storage/teste-ia,S3_REGION=us-east-1,S3_PREFIX=teste-ia/agent-llm,AWS_REQUEST_CHECKSUM_CALCULATION=when_required,AWS_RESPONSE_CHECKSUM_VALIDATION=when_required,INTERNAL_TOKEN=${KERNEL_INTERNAL_TOKEN}" \
     --allow-unauthenticated \
     --memory=1Gi --cpu=1 --min-instances=0 --max-instances=3 \
     --timeout=600
