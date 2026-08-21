@@ -1,9 +1,22 @@
 #!/usr/bin/env bash
-# Deploy the kernel (LangGraph) to Cloud Run (project eduk-prd-lake).
+# Deploy the kernel (LangGraph) to Cloud Run (project rangel-tech).
 #
 # Split de repo (agent-llm mega spec, infra-05): este repo era `kernel/`
 # dentro do monorepo `agent-platform`. Backend+frontend continuam lá,
 # deployando na VPS (rangeltech.net) — não aqui.
+#
+# Correção de higiene (infra-01 seção 2, achado #4 — 21/08/2026): isso
+# deployava no projeto GCP errado (eduk-prd-lake, é o projeto GCP da
+# MindLab/Eduk, outro cliente do dono, nada a ver com Rangel Tech). Migrado
+# pro projeto certo (rangel-tech). DATABASE_URL passa a apontar pro Postgres
+# real da VPS via porta 5433 (postgres-direct, TLS — mesmo achado do
+# `litellm-router`: a porta 5432/PgBouncer não faz TLS server-side). S3 usa
+# as credenciais reais do MinIO da VPS (já eram essas, só mudou de onde o
+# Secret Manager guarda). SERPER_API_KEY não foi migrada (chave de terceiro
+# fora do GCP, não dá pra ler do projeto antigo sem misturar contexto — o
+# kernel já degrada sozinho pra busca via DuckDuckGo sem ela, `app/tools.py`
+# linha 528, não é bloqueio; se quiser a Serper de volta, cadastrar uma
+# secret nova e reativar aqui).
 #
 # Kernel público + shared secret (infra-04): sem metadata server fora do GCP,
 # a proteção é KERNEL_INTERNAL_TOKEN via env var direta (--set-env-vars, NÃO
@@ -13,10 +26,9 @@
 # Usage: ./infra/deploy.sh kernel  (KERNEL_INTERNAL_TOKEN precisa estar no ambiente)
 set -euo pipefail
 
-PROJECT=eduk-prd-lake
+PROJECT=rangel-tech
 REGION=us-central1
-REPO=us-central1-docker.pkg.dev/$PROJECT/cloud-run-source-deploy
-RUNTIME_SA=devlake@eduk-prd-lake.iam.gserviceaccount.com
+REPO=us-central1-docker.pkg.dev/$PROJECT/containers
 
 target=${1:-kernel}
 cd "$(dirname "$0")/.."
@@ -50,8 +62,7 @@ deploy_kernel() {
   "$GCLOUD_BIN" run deploy teste-ia-kernel \
     --project=$PROJECT --region=$REGION \
     --image=$REPO/teste_ia-kernel:$SHORT_SHA \
-    --service-account=$RUNTIME_SA \
-    --set-secrets=DATABASE_URL=teste-ia-database-url:latest,SERPER_API_KEY=teste-ia-serper-key:latest,S3_ACCESS_KEY_ID=teste-ia-s3-access-key:latest,S3_SECRET_ACCESS_KEY=teste-ia-s3-secret-key:latest \
+    --set-secrets=DATABASE_URL=kernel-database-url:latest,S3_ACCESS_KEY_ID=kernel-s3-access-key:latest,S3_SECRET_ACCESS_KEY=kernel-s3-secret-key:latest \
     --set-env-vars="ENABLE_STUB_CONTROL=false,STORAGE_BACKEND=s3,S3_BUCKET=teste-ia,S3_ENDPOINT_URL=https://storage.rangeltech.net,S3_PUBLIC_BASE_URL=https://storage.rangeltech.net/teste-ia,S3_REGION=us-east-1,S3_PREFIX=agent-llm,INTERNAL_TOKEN=${KERNEL_INTERNAL_TOKEN}" \
     --allow-unauthenticated \
     --memory=1Gi --cpu=1 --min-instances=0 --max-instances=3 \

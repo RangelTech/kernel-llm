@@ -79,9 +79,13 @@ jobs:
 
   # Split de repo (agent-llm mega spec, infra-05): este repo era `kernel/`
   # dentro do monorepo agent-platform. Mesmo padrão de deploy (Workload
-  # Identity Federation, sem chave de service account guardada como secret) —
-  # o provedor OIDC foi estendido pra aceitar token deste repo também
-  # (attribute-condition no pool github-actions, GCP eduk-prd-lake).
+  # Identity Federation, sem chave de service account guardada como secret).
+  #
+  # Correção de higiene (infra-01 seção 2, achado #4 — 21/08/2026): deployava
+  # no projeto GCP errado (eduk-prd-lake, é da MindLab/Eduk, outro cliente do
+  # dono). Migrado pro WIF/projeto certo (rangel-tech), publicado como
+  # variável de organização (`rangel-tech-foundation/github`) pros repos
+  # gerenciados — não precisa de secret nenhum, só as 3 org vars.
   deploy:
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     needs: [python]
@@ -94,9 +98,9 @@ jobs:
       - id: auth
         uses: google-github-actions/auth@v2
         with:
-          project_id: eduk-prd-lake
-          workload_identity_provider: projects/188258617713/locations/global/workloadIdentityPools/github-actions/providers/github
-          service_account: github-deployer@eduk-prd-lake.iam.gserviceaccount.com
+          project_id: ${{ vars.GCP_PROJECT_ID }}
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_DEPLOYER_SERVICE_ACCOUNT }}
       - uses: google-github-actions/setup-gcloud@v2
       - name: Deploy kernel
         env:

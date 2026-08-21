@@ -3,14 +3,14 @@ steps:
     args:
       - build
       - -t
-      - us-central1-docker.pkg.dev/$PROJECT_ID/cloud-run-source-deploy/teste_ia-kernel:$SHORT_SHA
+      - us-central1-docker.pkg.dev/$PROJECT_ID/containers/teste_ia-kernel:$SHORT_SHA
       - -t
-      - us-central1-docker.pkg.dev/$PROJECT_ID/cloud-run-source-deploy/teste_ia-kernel:latest
+      - us-central1-docker.pkg.dev/$PROJECT_ID/containers/teste_ia-kernel:latest
       - -f
       - Dockerfile
       - .
 images:
-  - us-central1-docker.pkg.dev/$PROJECT_ID/cloud-run-source-deploy/teste_ia-kernel:$SHORT_SHA
-  - us-central1-docker.pkg.dev/$PROJECT_ID/cloud-run-source-deploy/teste_ia-kernel:latest
+  - us-central1-docker.pkg.dev/$PROJECT_ID/containers/teste_ia-kernel:$SHORT_SHA
+  - us-central1-docker.pkg.dev/$PROJECT_ID/containers/teste_ia-kernel:latest
 options:
   logging: CLOUD_LOGGING_ONLY
