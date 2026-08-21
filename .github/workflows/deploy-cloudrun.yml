@@ -104,6 +104,18 @@ jobs:
       - name: Terraform import (no-op if already tracked)
         working-directory: infra/terraform
         timeout-minutes: 3
+        env:
+          # terraform import valida o modulo inteiro antes de importar (achado
+          # real, 21/08/2026) -- precisa das mesmas TF_VAR_* do apply, mesmo
+          # nao usando os valores pra nada no import em si, senao falha com
+          # "No value for required variable" pra TODAS as vars, o import
+          # nunca roda (erro escondido pelo `|| true`) e o apply seguinte
+          # tenta CREATE num recurso que ja existe -> 409.
+          TF_VAR_image: us-central1-docker.pkg.dev/rangel-tech/containers/teste_ia-kernel:${{ github.sha }}
+          TF_VAR_database_url: ${{ steps.infisical.outputs.database_url }}
+          TF_VAR_s3_access_key_id: ${{ steps.infisical.outputs.s3_access_key_id }}
+          TF_VAR_s3_secret_access_key: ${{ steps.infisical.outputs.s3_secret_access_key }}
+          TF_VAR_internal_token: ${{ steps.infisical.outputs.internal_token }}
         run: |
           terraform import -input=false -lock=false google_cloud_run_v2_service.kernel_llm \
             projects/rangel-tech/locations/us-central1/services/kernel-llm || true
