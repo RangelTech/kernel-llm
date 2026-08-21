@@ -105,10 +105,10 @@ jobs:
         working-directory: infra/terraform
         timeout-minutes: 3
         run: |
-          terraform import -input=false google_cloud_run_v2_service.kernel_llm \
-            projects/rangel-tech/locations/us-central1/services/kernel-llm 2>/dev/null || true
-          terraform import -input=false google_cloud_run_v2_service_iam_member.public \
-            "projects/rangel-tech/locations/us-central1/services/kernel-llm roles/run.invoker allUsers" 2>/dev/null || true
+          terraform import -input=false -lock=false google_cloud_run_v2_service.kernel_llm \
+            projects/rangel-tech/locations/us-central1/services/kernel-llm || true
+          terraform import -input=false -lock=false google_cloud_run_v2_service_iam_member.public \
+            "projects/rangel-tech/locations/us-central1/services/kernel-llm roles/run.invoker allUsers" || true
 
       - name: Terraform apply
         working-directory: infra/terraform
@@ -118,7 +118,7 @@ jobs:
           TF_VAR_s3_access_key_id: ${{ steps.infisical.outputs.s3_access_key_id }}
           TF_VAR_s3_secret_access_key: ${{ steps.infisical.outputs.s3_secret_access_key }}
           TF_VAR_internal_token: ${{ steps.infisical.outputs.internal_token }}
-        run: terraform apply -input=false -auto-approve
+        run: terraform apply -input=false -lock=false -auto-approve
 
       - name: Smoke check
         # min-instances=0 -- retry curto absorve cold start logo apos deploy.
