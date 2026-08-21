@@ -115,6 +115,7 @@ jobs:
             --timeout=600
 
       - name: Smoke check
+        # min-instances=0 -- retry curto absorve cold start logo apos deploy.
         run: |
           URL=$(gcloud run services describe kernel-llm --project=rangel-tech --region=us-central1 --format='value(status.url)')
-          curl -fsS "$URL/health" | grep -q '"status":"ok"'
+          curl -fsS --retry 5 --retry-delay 5 --retry-all-errors "$URL/health" | grep -q '"status":"ok"'
