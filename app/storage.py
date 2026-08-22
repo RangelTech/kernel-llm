@@ -7,6 +7,7 @@ tool-call trace); only the full payload goes to object storage.
 import json
 import logging
 import uuid
+from datetime import timedelta
 from pathlib import Path
 from urllib.parse import quote
 
@@ -124,8 +125,6 @@ def signed_url(storage_path: str, expires_seconds: int = 3600) -> str | None:
             return None
     if not storage_path.startswith("gs://"):
         return None
-    from datetime import timedelta
-
     bucket_name, blob_name = _split_storage_uri(storage_path, "gs")
     try:
         return (
@@ -137,6 +136,111 @@ def signed_url(storage_path: str, expires_seconds: int = 3600) -> str | None:
     except Exception:  # noqa: BLE001 — SA without signing perms: degrade to no URL
         logger.exception("failed to sign url for %s", storage_path)
         return None
+
+
+def artifact_upload_target(
+    *, tenant_id: str, kind: str, artifact_id: str, extension: str, content_type: str
+) -> tuple[str, str | None]:
+    """Return the final path and one-time PUT URL without carrying file bytes through Cloud Run."""
+    safe_kind = kind if kind in {"file", "image", "dataset", "document"} else "file"
+    safe_extension = "".join(ch for ch in extension.lower() if ch.isalnum())[:16] or "bin"
+    relative = f"tenants/{tenant_id}/artifacts/{safe_kind}/{artifact_id}.{safe_extension}"
+    backend = _storage_backend()
+    if backend == "s3":
+        key = _join_key(settings.s3_prefix, relative)
+        path = f"s3://{settings.s3_bucket}/{key}"
+        return (
+            path,
+            _s3().generate_presigned_url(
+                "put_object",
+                Params={"Bucket": settings.s3_bucket, "Key": key, "ContentType": content_type},
+                ExpiresIn=900,
+            ),
+        )
+    if backend == "gcs":
+        name = _join_key(settings.gcs_prefix, relative)
+        path = f"gs://{settings.gcs_bucket}/{name}"
+        url = (
+            _gcs()
+            .bucket(settings.gcs_bucket)
+            .blob(name)
+            .generate_signed_url(
+                expiration=timedelta(minutes=15), method="PUT", content_type=content_type
+            )
+        )
+        return path, url
+    return str(Path(settings.artifacts_local_dir) / relative), None
+
+
+def artifact_payload_size(storage_path: str) -> int:
+    if storage_path.startswith("s3://"):
+        bucket, key = _split_storage_uri(storage_path, "s3")
+        return int(_s3().head_object(Bucket=bucket, Key=key)["ContentLength"])
+    if storage_path.startswith("gs://"):
+        bucket, name = _split_storage_uri(storage_path, "gs")
+        blob = _gcs().bucket(bucket).blob(name)
+        blob.reload()
+        return int(blob.size or 0)
+    return Path(storage_path).stat().st_size
+
+
+def delete_payload(storage_path: str) -> None:
+    if storage_path.startswith("s3://"):
+        bucket, key = _split_storage_uri(storage_path, "s3")
+        _s3().delete_object(Bucket=bucket, Key=key)
+    elif storage_path.startswith("gs://"):
+        bucket, name = _split_storage_uri(storage_path, "gs")
+        _gcs().bucket(bucket).blob(name).delete()
+    else:
+        Path(storage_path).unlink(missing_ok=True)
+
+
+async def register_uploaded_artifact(
+    *,
+    artifact_id: str,
+    tenant_id: str,
+    chat_id: str | None,
+    agent_name: str,
+    kind: str,
+    title: str,
+    schema_json: dict | list | None,
+    preview_json: dict | list | None,
+    row_count: int | None,
+    storage_path: str,
+    content_type: str,
+) -> dict:
+    """Commit metadata only after the direct object-storage upload is verified."""
+    from app.trace import _get_pool
+
+    pool = await _get_pool()
+    async with pool.connection() as conn:
+        await conn.execute(
+            """INSERT INTO artifacts
+               (id, tenant_id, chat_id, agent_name, kind, title, schema_json,
+                preview_json, row_count, storage_path, content_type)
+               VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
+            (
+                artifact_id,
+                tenant_id,
+                chat_id,
+                agent_name,
+                kind,
+                title,
+                json.dumps(schema_json, ensure_ascii=False, default=str),
+                json.dumps(preview_json, ensure_ascii=False, default=str),
+                row_count,
+                storage_path,
+                content_type,
+            ),
+        )
+    return {
+        "artifact_id": artifact_id,
+        "kind": kind,
+        "title": title,
+        "schema": schema_json,
+        "preview": preview_json,
+        "row_count": row_count,
+    }
 
 
 async def register_artifact(
@@ -209,9 +313,7 @@ async def get_artifact(artifact_id: str) -> dict | None:
 
     pool = await _get_pool()
     async with pool.connection() as conn:
-        cursor = await conn.execute(
-            "SELECT * FROM artifacts WHERE id = %s", (artifact_id,)
-        )
+        cursor = await conn.execute("SELECT * FROM artifacts WHERE id = %s", (artifact_id,))
         row = await cursor.fetchone()
     if row is None:
         return None

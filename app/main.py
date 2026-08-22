@@ -1,6 +1,6 @@
 from contextlib import asynccontextmanager
 
-from fastapi import Depends, FastAPI
+from fastapi import Depends, FastAPI, HTTPException
 from pydantic import BaseModel
 
 from app import providers, tools_output  # noqa: F401 — registers output tools
@@ -117,13 +117,90 @@ async def test_model(payload: TestModelIn):
         max_tokens=5,
     )
     try:
-        async for _ in stream_completion(
-            config, [{"role": "user", "content": "responda: ok"}]
-        ):
+        async for _ in stream_completion(config, [{"role": "user", "content": "responda: ok"}]):
             break  # first delta is proof enough
         return {"ok": True, "detail": ""}
     except Exception as exc:  # noqa: BLE001 — the point is reporting it
         return {"ok": False, "detail": str(exc)[:500]}
+
+
+_MAX_CUSTOM_ARTIFACT_BYTES = 250 * 1024 * 1024
+
+
+class ArtifactRegisterInitIn(BaseModel):
+    tenant_id: str
+    kind: str = "file"
+    extension: str = "bin"
+    content_type: str = "application/octet-stream"
+
+
+class ArtifactRegisterCompleteIn(ArtifactRegisterInitIn):
+    artifact_id: str
+    chat_id: str | None = None
+    agent_name: str = "custom_tool"
+    title: str = "Arquivo gerado"
+    schema_json: dict | list | None = None
+    preview_json: dict | list | None = None
+    row_count: int | None = None
+
+
+@app.post("/v1/artifacts/register-init", dependencies=[Depends(require_internal_auth)])
+async def artifact_register_init(payload: ArtifactRegisterInitIn):
+    """Create a short-lived direct-upload URL; bytes never traverse the kernel."""
+    import uuid
+
+    from app.storage import artifact_upload_target
+
+    artifact_id = str(uuid.uuid4())
+    path, upload_url = artifact_upload_target(
+        tenant_id=payload.tenant_id,
+        kind=payload.kind,
+        artifact_id=artifact_id,
+        extension=payload.extension,
+        content_type=payload.content_type,
+    )
+    if upload_url is None:
+        return {"artifact_id": artifact_id, "storage_path": path, "upload_url": None}
+    return {"artifact_id": artifact_id, "storage_path": path, "upload_url": upload_url}
+
+
+@app.post("/v1/artifacts/register-complete", dependencies=[Depends(require_internal_auth)])
+async def artifact_register_complete(payload: ArtifactRegisterCompleteIn):
+    """Verify direct upload size then atomically publish its artifact metadata."""
+    from app.storage import (
+        artifact_payload_size,
+        artifact_upload_target,
+        delete_payload,
+        register_uploaded_artifact,
+    )
+
+    expected_path, _ = artifact_upload_target(
+        tenant_id=payload.tenant_id,
+        kind=payload.kind,
+        artifact_id=payload.artifact_id,
+        extension=payload.extension,
+        content_type=payload.content_type,
+    )
+    try:
+        size = artifact_payload_size(expected_path)
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=404, detail="Upload de artifact não encontrado") from exc
+    if size > _MAX_CUSTOM_ARTIFACT_BYTES:
+        delete_payload(expected_path)
+        raise HTTPException(status_code=413, detail="Artifact excede o limite de 250MB")
+    return await register_uploaded_artifact(
+        artifact_id=payload.artifact_id,
+        tenant_id=payload.tenant_id,
+        chat_id=payload.chat_id,
+        agent_name=payload.agent_name,
+        kind=payload.kind,
+        title=payload.title,
+        schema_json=payload.schema_json,
+        preview_json=payload.preview_json,
+        row_count=payload.row_count,
+        storage_path=expected_path,
+        content_type=payload.content_type,
+    )
 
 
 class StubScriptIn(BaseModel):
