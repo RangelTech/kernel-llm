@@ -121,6 +121,10 @@ resource "google_cloud_run_v2_service" "kernel_llm" {
         name  = "INTERNAL_TOKEN"
         value = var.internal_token
       }
+      env {
+        name  = "PLATFORM_BACKEND_URL"
+        value = "https://ia.rangeltech.net"
+      }
     }
 
     scaling {

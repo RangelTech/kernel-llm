@@ -63,6 +63,9 @@ class Settings(BaseSettings):
     checkpoint_pool_size: int = 5
     # Shared secret for backend->kernel calls. Empty disables the check (dev).
     internal_token: str = ""
+    # Private toolkit path used by the RAgentes onboarding assistant. It is
+    # authenticated with internal_token and never exposed to the browser/model.
+    platform_backend_url: str = "http://localhost:8090"
     # Exposes POST /stub/script so test suites can program the stub provider.
     enable_stub_control: bool = True
 

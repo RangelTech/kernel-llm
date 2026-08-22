@@ -50,6 +50,8 @@ def set_run_context(
     write_tables: list[str] | None = None,
     attachments: list[dict] | None = None,
     payment: dict | None = None,
+    user_id: str | None = None,
+    tenant_guide_enabled: bool = False,
 ) -> None:
     RUN_CONTEXT.set(
         {
@@ -57,6 +59,8 @@ def set_run_context(
             "secrets": secrets,
             "datasources": {d["name"]: d for d in datasources},
             "tenant_id": tenant_id,
+            "user_id": user_id,
+            "tenant_guide_enabled": tenant_guide_enabled,
             "chat_id": chat_id,
             "agent": "",
             "embedding": embedding or {"provider": "stub"},
@@ -86,6 +90,79 @@ def _resolve_secrets(text: str) -> str:
         return secrets.get(match.group(1), match.group(0))
 
     return _SECRET_REF.sub(sub, text)
+
+
+async def _tenant_guide(action: str, payload: dict | None = None) -> str:
+    """Call the narrow server-side guide API with immutable run identity."""
+    from app.config import settings
+
+    context = _context()
+    if not context.get("tenant_guide_enabled"):
+        return "ERRO: toolkit disponível apenas no Assistente RAgentes"
+    if not context.get("tenant_id") or not context.get("user_id") or not context.get("chat_id"):
+        return "ERRO: contexto do tenant indisponível"
+    if not settings.internal_token:
+        return "ERRO: toolkit interno do Assistente RAgentes não configurado"
+    body = {
+        "tenant_id": str(context["tenant_id"]),
+        "user_id": str(context["user_id"]),
+        "chat_id": str(context["chat_id"]),
+        **(payload or {}),
+    }
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            response = await client.post(
+                f"{settings.platform_backend_url.rstrip('/')}/api/internal/tenant-guide/{action}",
+                headers={"Authorization": f"Bearer {settings.internal_token}"},
+                json=body,
+            )
+        if response.status_code >= 400:
+            return f"ERRO: {response.json().get('detail', 'toolkit indisponível')}"
+        return json.dumps(response.json(), ensure_ascii=False, default=str)
+    except httpx.HTTPError:
+        return "ERRO: toolkit interno do Assistente RAgentes indisponível"
+
+
+@catalog.tool()
+async def tenant_guide_get_platform_guide() -> str:
+    """Recupera o guia versionado da plataforma RAgentes e seus links internos."""
+    return await _tenant_guide("platform-guide")
+
+
+@catalog.tool()
+async def tenant_guide_get_tenant_overview() -> str:
+    """Resume apenas o ambiente do tenant atual: templates, IA, fontes e arquivos."""
+    return await _tenant_guide("overview")
+
+
+@catalog.tool()
+async def tenant_guide_get_users_activity_summary() -> str:
+    """Resume usuários somente se o solicitante tiver permissão para vê-los."""
+    return await _tenant_guide("users-activity")
+
+
+@catalog.tool()
+async def tenant_guide_get_ratende_status() -> str:
+    """Resume a conexão RAtende/Chatwoot do tenant sem expor tokens ou conversas."""
+    return await _tenant_guide("ratende-status")
+
+
+@catalog.tool()
+async def tenant_guide_plan_template(plan_json: str) -> str:
+    """Valida uma prévia de template sem persistir. plan_json é um objeto JSON."""
+    try:
+        plan = json.loads(plan_json)
+    except json.JSONDecodeError:
+        return "ERRO: plan_json precisa ser JSON válido"
+    if not isinstance(plan, dict):
+        return "ERRO: plan_json precisa ser um objeto"
+    return await _tenant_guide("plan", {"plan": plan})
+
+
+@catalog.tool()
+async def tenant_guide_create_template_from_plan(confirmation_id: str) -> str:
+    """Cria o template somente após confirmação explícita recente do usuário."""
+    return await _tenant_guide("create", {"confirmation_id": confirmation_id})
 
 
 @catalog.tool()
@@ -322,8 +399,10 @@ async def _load_dataset_for(context: dict, artifact_id: str) -> dict | None:
     record = await get_artifact(artifact_id)
     if record is None or record["kind"] != "dataset":
         return None
-    if record["tenant_id"] and context.get("tenant_id") and str(record["tenant_id"]) != str(
-        context["tenant_id"]
+    if (
+        record["tenant_id"]
+        and context.get("tenant_id")
+        and str(record["tenant_id"]) != str(context["tenant_id"])
     ):
         return None
     return json.loads(load_payload(record["storage_path"]))
@@ -452,8 +531,12 @@ async def generate_forecast(
 
     try:
         history, future = await forecast_series(
-            dataset["columns"], dataset["rows"], date_column, value_column,
-            horizon=min(horizon, 36), freq=freq,
+            dataset["columns"],
+            dataset["rows"],
+            date_column,
+            value_column,
+            horizon=min(horizon, 36),
+            freq=freq,
         )
     except Exception as exc:  # noqa: BLE001 — the model needs the reason
         return f"ERRO na previsão: {exc}"
@@ -621,9 +704,7 @@ async def analyze_pdf_pages(attachment_name: str, instruction: str, max_pages: i
                 },
             ]
             try:
-                result = await complete(
-                    config, [{"role": "user", "content": content}], swallow
-                )
+                result = await complete(config, [{"role": "user", "content": content}], swallow)
                 pages_output.append({"page": index + 1, "result": result.content})
             except Exception as exc:  # noqa: BLE001
                 pages_output.append({"page": index + 1, "error": str(exc)[:300]})
@@ -691,9 +772,7 @@ async def execute_sql_transaction(datasource: str, statements_json: str) -> str:
     from app.datasources import execute_transaction
 
     try:
-        results = await execute_transaction(
-            source, statements, context.get("write_tables", [])
-        )
+        results = await execute_transaction(source, statements, context.get("write_tables", []))
     except Exception as exc:  # noqa: BLE001 — the model needs the reason to retry
         return f"ERRO na transação (nada foi gravado): {exc}"
     _invalidar_leituras()
@@ -892,9 +971,7 @@ async def check_payment_status(payment_id: str = "", reference_id: str = "") -> 
     # Só republica o QR enquanto dá para pagar: reexibir QR de cobrança paga ou
     # cancelada convida um segundo pagamento.
     qr_artifact = (
-        await _publicar_qr(
-            context, pix.get("qr_code_base64"), payment.get("transaction_amount")
-        )
+        await _publicar_qr(context, pix.get("qr_code_base64"), payment.get("transaction_amount"))
         if status == "pending"
         else None
     )

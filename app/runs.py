@@ -103,6 +103,8 @@ class RunRequest(BaseModel):
     attachments: list[dict] = Field(default_factory=list)
     # Whisper provider for audio attachments: {provider, model, api_key}.
     transcription: dict = Field(default_factory=dict)
+    # Set only by the backend while resolving the RAgentes system template.
+    tenant_guide_enabled: bool = False
 
 
 def require_internal_auth(request: Request) -> None:
@@ -140,6 +142,7 @@ async def create_run(payload: RunRequest):
         "embedding": payload.embedding,
         "payment": payload.payment,
         "attachments": payload.attachments,
+        "tenant_guide_enabled": payload.tenant_guide_enabled,
         "write_tables": payload.write_tables,
         "require_write_confirmation": payload.require_write_confirmation,
     }

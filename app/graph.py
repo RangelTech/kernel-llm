@@ -107,15 +107,12 @@ async def _historico_para_o_modelo(state: RunState, run_config: dict) -> list:
     if resumo is None:
         return [(None, m) for m in recentes]
     cabecalho = (
-        f"[Resumo automático das {len(antigas)} mensagens anteriores desta "
-        f"conversa]\n{resumo}"
+        f"[Resumo automático das {len(antigas)} mensagens anteriores desta conversa]\n{resumo}"
     )
     return [("resumo", cabecalho)] + [(None, m) for m in recentes]
 
 
-async def _history_messages(
-    state: RunState, system_prompt: str, run_config: dict
-) -> list[dict]:
+async def _history_messages(state: RunState, system_prompt: str, run_config: dict) -> list[dict]:
     messages: list[dict] = []
     if system_prompt:
         messages.append({"role": "system", "content": system_prompt})
@@ -195,8 +192,14 @@ async def _record_usage(run_config: dict, agent_name: str, config: ModelConfig, 
 
 
 async def _record_tool_call(
-    run_config: dict, agent: str, tool: str, arguments: dict, output: str,
-    status: str, started: float, writer,
+    run_config: dict,
+    agent: str,
+    tool: str,
+    arguments: dict,
+    output: str,
+    status: str,
+    started: float,
+    writer,
 ) -> None:
     duration_ms = int((time.monotonic() - started) * 1000)
     writer(
@@ -299,12 +302,8 @@ def _nota_dos_artefatos(descriptors: list[dict]) -> str:
     """
     if not descriptors:
         return ""
-    itens = "; ".join(
-        f"{d.get('kind', 'arquivo')} \"{d.get('title', '')}\"" for d in descriptors
-    )
-    links = "; ".join(
-        f"[{d.get('title', '')}](artifact:{d['artifact_id']})" for d in descriptors
-    )
+    itens = "; ".join(f'{d.get("kind", "arquivo")} "{d.get("title", "")}"' for d in descriptors)
+    links = "; ".join(f"[{d.get('title', '')}](artifact:{d['artifact_id']})" for d in descriptors)
     return (
         f"\n\n[NOTA DA PLATAFORMA] Já foram exibidos ao usuário nesta resposta: "
         f"{itens}. Ele está vendo isso na tela agora. "
@@ -330,17 +329,20 @@ CLAUSULA_DO_ESPECIALISTA = (
 
 
 async def _run_specialist(
-    agent: dict, task: str, writer, run_config: dict, tool_defs: dict,
-    catalog_session, external: ExternalServers,
+    agent: dict,
+    task: str,
+    writer,
+    run_config: dict,
+    tool_defs: dict,
+    catalog_session,
+    external: ExternalServers,
 ) -> str:
     """One specialist turn: its own model, its own tools, a short bounded
     tool-loop. Output goes back to the supervisor, not to the user stream."""
     writer({"type": "agent_start", "name": agent["name"]})
     set_current_agent(agent["name"], agent.get("model"))
     config = ModelConfig(**agent["model"])
-    limite_saida = int(
-        run_config.get("tool_output_limit") or settings.tool_output_limit_default
-    )
+    limite_saida = int(run_config.get("tool_output_limit") or settings.tool_output_limit_default)
     allowed_names = {t for t in agent.get("tools", []) if t in tool_defs}
     allowed = [tool_defs[t] for t in allowed_names] or None
     messages = [
@@ -407,8 +409,14 @@ async def _run_specialist(
                         tool_output = f"ERRO na tool {tc.name}: {exc}"
                         status = "error"
                 await _record_tool_call(
-                    run_config, agent["name"], tc.name, arguments, tool_output,
-                    status, started, writer,
+                    run_config,
+                    agent["name"],
+                    tc.name,
+                    arguments,
+                    tool_output,
+                    status,
+                    started,
+                    writer,
                 )
                 # Materialized artifacts surface as their own stream event so
                 # the frontend can render/download them. Tools may return one
@@ -545,20 +553,19 @@ async def _supervisor_node(state: RunState) -> dict:
         tenant_id=run_config.get("tenant_id"),
         chat_id=run_config.get("thread_id"),
         embedding=run_config.get("embedding") or None,
-        agent_files={
-            a["name"]: a.get("file_ids", []) for a in run_config.get("agents", [])
-        },
+        agent_files={a["name"]: a.get("file_ids", []) for a in run_config.get("agents", [])},
         write_tables=run_config.get("write_tables", []),
         attachments=run_config.get("attachments", []),
         payment=run_config.get("payment") or {},
+        user_id=run_config.get("user_id"),
+        tenant_guide_enabled=bool(run_config.get("tenant_guide_enabled")),
     )
     tool_defs = _agent_tool_defs(list(agents.values())) or None
     supervisor_config = ModelConfig(**supervisor["model"])
     system_prompt = build_supervisor_prompt(
         supervisor.get("prompt", ""),
         run_config.get("memories") or [],
-        bool(run_config.get("require_write_confirmation"))
-        and bool(run_config.get("write_tables")),
+        bool(run_config.get("require_write_confirmation")) and bool(run_config.get("write_tables")),
     )
     messages = await _history_messages(state, system_prompt, run_config)
 
@@ -604,12 +611,15 @@ async def _supervisor_node(state: RunState) -> dict:
                     except json.JSONDecodeError:
                         task = tc.arguments
                     output = await _run_specialist(
-                        agent, task, writer, run_config, platform_tools,
-                        catalog_session, external,
+                        agent,
+                        task,
+                        writer,
+                        run_config,
+                        platform_tools,
+                        catalog_session,
+                        external,
                     )
-                messages.append(
-                    {"role": "tool", "tool_call_id": tc.id, "content": output}
-                )
+                messages.append({"role": "tool", "tool_call_id": tc.id, "content": output})
         else:
             # Step budget exhausted: force a final answer, no tools allowed.
             writer({"type": "limit", "detail": "max_steps"})

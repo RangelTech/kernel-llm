@@ -63,7 +63,7 @@ deploy_kernel() {
     --project=$PROJECT --region=$REGION \
     --image=$REPO/teste_ia-kernel:$SHORT_SHA \
     --set-secrets=DATABASE_URL=kernel-database-url:latest,S3_ACCESS_KEY_ID=gcs-hmac-access-key:latest,S3_SECRET_ACCESS_KEY=gcs-hmac-secret-key:latest \
-    --set-env-vars="ENABLE_STUB_CONTROL=false,STORAGE_BACKEND=s3,S3_BUCKET=rangel-tech-storage,S3_ENDPOINT_URL=https://storage.googleapis.com,S3_PUBLIC_BASE_URL=https://storage.googleapis.com/rangel-tech-storage/teste-ia,S3_REGION=us-east-1,S3_PREFIX=teste-ia/agent-llm,AWS_REQUEST_CHECKSUM_CALCULATION=when_required,AWS_RESPONSE_CHECKSUM_VALIDATION=when_required,INTERNAL_TOKEN=${KERNEL_INTERNAL_TOKEN}" \
+    --set-env-vars="ENABLE_STUB_CONTROL=false,STORAGE_BACKEND=s3,S3_BUCKET=rangel-tech-storage,S3_ENDPOINT_URL=https://storage.googleapis.com,S3_PUBLIC_BASE_URL=https://storage.googleapis.com/rangel-tech-storage/teste-ia,S3_REGION=us-east-1,S3_PREFIX=teste-ia/agent-llm,AWS_REQUEST_CHECKSUM_CALCULATION=when_required,AWS_RESPONSE_CHECKSUM_VALIDATION=when_required,INTERNAL_TOKEN=${KERNEL_INTERNAL_TOKEN},PLATFORM_BACKEND_URL=https://ia.rangeltech.net" \
     --allow-unauthenticated \
     --memory=1Gi --cpu=1 --min-instances=0 --max-instances=3 \
     --timeout=600
