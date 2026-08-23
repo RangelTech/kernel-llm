@@ -128,7 +128,14 @@ resource "google_cloud_run_v2_service" "kernel_llm" {
     }
 
     scaling {
-      min_instance_count = 0
+      # Achado real 23/08/2026 (mega-spec-reestrutura, item B de performance):
+      # medido 10,7s de cold start real no /health (`curl` de fora, 6
+      # amostras -- a 1ª 10,7s, as 5 seguintes 0,27-0,28s já aquecido). O
+      # kernel é quem processa toda mensagem real de todo tenant -- é o
+      # serviço mais sensível a essa latência de todos, mais até que o
+      # dashboard do RAgentes (`agent-llm-backend`, mesmo achado, já
+      # corrigido). Mesmo raciocínio, mesmo fix.
+      min_instance_count = 1
       max_instance_count = 3
     }
 
