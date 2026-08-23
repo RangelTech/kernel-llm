@@ -32,6 +32,15 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     environment: production
+    # Achado real 23/08/2026: este job e o `deploy` do ci.yml (gcloud run
+    # deploy puro) disparam no mesmo push pra `infra/terraform/**`, sem
+    # coordenação -- corrida real, resultado dependia de qual terminava por
+    # último. Mesmo grupo de concurrency usado no `ci.yml` (e já usado com
+    # sucesso pelo `agent-platform`, mesmo padrão) -- GitHub Actions
+    # serializa/cancela em vez de rodar em paralelo.
+    concurrency:
+      group: kernel-llm-cloudrun-production
+      cancel-in-progress: true
     steps:
       - name: Checkout
         uses: actions/checkout@v4

@@ -89,6 +89,17 @@ jobs:
   deploy:
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     needs: [python]
+    # Achado real 23/08/2026: este job e o `deploy` do deploy-cloudrun.yml
+    # (terraform apply) disparam no mesmo push e competiam sem coordenação
+    # nenhuma -- um min_instance_count corrigido só no terraform sumia
+    # quando este job (gcloud run deploy puro) terminava depois e vencia a
+    # corrida. `agent-platform` já resolve isso com um grupo de concurrency
+    # compartilhado entre os 2 workflows (mesmo nome de grupo = GitHub
+    # Actions serializa/cancela em vez de rodar em paralelo); replicando o
+    # mesmo padrão aqui.
+    concurrency:
+      group: kernel-llm-cloudrun-production
+      cancel-in-progress: true
     runs-on: ubuntu-latest
     permissions:
       contents: read
