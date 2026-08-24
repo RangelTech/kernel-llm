@@ -65,15 +65,13 @@ deploy_kernel() {
     --set-secrets=DATABASE_URL=kernel-database-url:latest,S3_ACCESS_KEY_ID=gcs-hmac-access-key:latest,S3_SECRET_ACCESS_KEY=gcs-hmac-secret-key:latest \
     --set-env-vars="ENABLE_STUB_CONTROL=false,STORAGE_BACKEND=s3,S3_BUCKET=rangel-tech-storage,S3_ENDPOINT_URL=https://storage.googleapis.com,S3_PUBLIC_BASE_URL=https://storage.googleapis.com/rangel-tech-storage/teste-ia,S3_REGION=us-east-1,S3_PREFIX=teste-ia/agent-llm,AWS_REQUEST_CHECKSUM_CALCULATION=when_required,AWS_RESPONSE_CHECKSUM_VALIDATION=when_required,INTERNAL_TOKEN=${KERNEL_INTERNAL_TOKEN},PLATFORM_BACKEND_URL=https://ia.rangeltech.net" \
     --allow-unauthenticated \
-    --memory=1Gi --cpu=1 --min-instances=0 --max-instances=3 \
+    --memory=1Gi --cpu=1 --min-instances=1 --max-instances=3 \
     --timeout=600
-  # min-instances=0 por decisão do dono (23/08/2026): ainda em dev, contenção
-  # de custo é prioridade. O valor PROVADO com evidência real pra produção é
-  # min=1 -- 10,7s de cold start real medido em `GET /health` (1ª de 6
-  # amostras). O kernel processa toda mensagem real de todo tenant, é o
-  # serviço mais sensível a essa latência do stack -- documentado na skill
-  # `agentllm` (personal-skills), seção "min_instances provados 23/08/2026",
-  # pra usar quando entrar em produção de verdade.
+  # min-instances=1 restaurado por decisão do dono (24/08/2026): entrou em
+  # produção, cold start deixa de ser aceitável -- 10,7s medido em
+  # `GET /health` (achado 23/08/2026). O kernel processa toda mensagem real
+  # de todo tenant, é o serviço mais sensível a essa latência do stack --
+  # documentado na skill `agentllm` (personal-skills).
   # `infra/terraform/main.tf` deste repo também foi ajustado (mesmo motivo)
   # mas NÃO é o que roda de verdade -- o CI (`ci.yml`) chama este script
   # direto, não `terraform apply` (confirmado lendo o log real de um deploy,

@@ -134,13 +134,11 @@ resource "google_cloud_run_v2_service" "kernel_llm" {
       # kernel é quem processa toda mensagem real de todo tenant -- é o
       # serviço mais sensível a essa latência de todos, mais até que o
       # dashboard do RAgentes (`agent-llm-backend`, mesmo achado, já
-      # corrigido). min=1 é o valor PROVADO certo pra produção, documentado
-      # na skill `agentllm` (personal-skills).
+      # corrigido). min=1 documentado na skill `agentllm` (personal-skills).
       #
-      # Voltado pra min=0 por decisão do dono (23/08/2026): ainda em dev,
-      # contenção de custo é prioridade sobre cold start enquanto não tem
-      # cliente real. Lembrar de voltar pra 1 quando entrar em produção.
-      min_instance_count = 0
+      # min=1 restaurado por decisão do dono (24/08/2026): entrou em
+      # produção, cold start deixa de ser aceitável.
+      min_instance_count = 1
       max_instance_count = 3
     }
 
