@@ -38,6 +38,7 @@ async def list_platform_tools():
     return [
         {
             "name": t.name,
+            "title": t.title or "",
             "description": t.description or "",
             "parameters": t.inputSchema or {},
         }

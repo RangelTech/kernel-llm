@@ -177,7 +177,10 @@ def _column_values(dataset: dict, column: str) -> list | None:
     return [row[index] for row in dataset["rows"][:_MAX_CHART_POINTS]]
 
 
-@catalog.tool()
+@catalog.tool(
+    title="Gerar gráfico",
+    description="Cria um gráfico (imagem) a partir de um conjunto de dados.",
+)
 async def generate_chart(
     artifact_id: str,
     chart_type: str,
@@ -244,7 +247,10 @@ async def generate_chart(
     return json.dumps(descriptor, ensure_ascii=False)
 
 
-@catalog.tool()
+@catalog.tool(
+    title="Exportar para Excel",
+    description="Exporta um conjunto de dados pra uma planilha XLSX pra baixar.",
+)
 async def export_xlsx(artifact_id: str, title: str = "") -> str:
     """Exporta um dataset artifact para uma planilha XLSX que o usuário pode
     baixar no chat."""
@@ -282,7 +288,10 @@ async def export_xlsx(artifact_id: str, title: str = "") -> str:
     return json.dumps(descriptor, ensure_ascii=False)
 
 
-@catalog.tool()
+@catalog.tool(
+    title="Gerar PDF",
+    description="Cria um documento PDF a partir de texto/markdown, com tabela opcional.",
+)
 async def generate_pdf(title: str, content_markdown: str, artifact_id: str = "") -> str:
     """Gera um documento PDF a partir de texto (markdown simples: títulos #,
     listas -, parágrafos). Se artifact_id de um dataset for informado, a

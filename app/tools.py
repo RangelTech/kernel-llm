@@ -123,31 +123,46 @@ async def _tenant_guide(action: str, payload: dict | None = None) -> str:
         return "ERRO: toolkit interno do Assistente RAgentes indisponível"
 
 
-@catalog.tool()
+@catalog.tool(
+    title="Guia da plataforma",
+    description="Consulta o guia oficial da plataforma RAgentes e seus links internos.",
+)
 async def tenant_guide_get_platform_guide() -> str:
     """Recupera o guia versionado da plataforma RAgentes e seus links internos."""
     return await _tenant_guide("platform-guide")
 
 
-@catalog.tool()
+@catalog.tool(
+    title="Visão geral da empresa",
+    description="Resume o ambiente da empresa: templates, IA, fontes de dados e arquivos.",
+)
 async def tenant_guide_get_tenant_overview() -> str:
     """Resume apenas o ambiente do tenant atual: templates, IA, fontes e arquivos."""
     return await _tenant_guide("overview")
 
 
-@catalog.tool()
+@catalog.tool(
+    title="Resumo de atividade dos usuários",
+    description="Resume a atividade dos usuários da empresa (respeita a permissão de quem pede).",
+)
 async def tenant_guide_get_users_activity_summary() -> str:
     """Resume usuários somente se o solicitante tiver permissão para vê-los."""
     return await _tenant_guide("users-activity")
 
 
-@catalog.tool()
+@catalog.tool(
+    title="Status do RAtende",
+    description="Mostra o status da conexão RAtende/Chatwoot da empresa.",
+)
 async def tenant_guide_get_ratende_status() -> str:
     """Resume a conexão RAtende/Chatwoot do tenant sem expor tokens ou conversas."""
     return await _tenant_guide("ratende-status")
 
 
-@catalog.tool()
+@catalog.tool(
+    title="Validar plano de template",
+    description="Valida uma prévia de template sem salvar nada ainda.",
+)
 async def tenant_guide_plan_template(plan_json: str) -> str:
     """Valida uma prévia de template sem persistir. plan_json é um objeto JSON."""
     try:
@@ -159,13 +174,19 @@ async def tenant_guide_plan_template(plan_json: str) -> str:
     return await _tenant_guide("plan", {"plan": plan})
 
 
-@catalog.tool()
+@catalog.tool(
+    title="Criar template a partir do plano",
+    description="Cria o template de verdade, só depois de confirmação explícita do usuário.",
+)
 async def tenant_guide_create_template_from_plan(confirmation_id: str) -> str:
     """Cria o template somente após confirmação explícita recente do usuário."""
     return await _tenant_guide("create", {"confirmation_id": confirmation_id})
 
 
-@catalog.tool()
+@catalog.tool(
+    title="Calculadora",
+    description="Faz contas exatas (soma, média, etc.) sem erro de arredondamento do modelo.",
+)
 def calculate(expression: str) -> str:
     """Calculadora determinística para aritmética exata. Use SEMPRE que
     precisar de contas (somas, porcentagens, juros). Aceita + - * / % ** e
@@ -184,7 +205,10 @@ def calculate(expression: str) -> str:
         return f"ERRO: {exc}"
 
 
-@catalog.tool()
+@catalog.tool(
+    title="Chamar API externa",
+    description="Faz uma chamada HTTP pra uma API externa e devolve a resposta.",
+)
 async def call_http_api(
     url: str,
     method: str = "GET",
@@ -240,7 +264,10 @@ def _invalidar_leituras() -> None:
     _cache_de_leitura().clear()
 
 
-@catalog.tool()
+@catalog.tool(
+    title="Listar fontes de dados",
+    description="Lista as fontes de dados disponíveis nesta conversa, com tabelas e colunas.",
+)
 async def describe_datasources() -> str:
     """Lista as fontes de dados disponíveis nesta conversa, com suas tabelas e
     colunas. Chame antes de escrever SQL para saber o que existe."""
@@ -268,7 +295,10 @@ async def describe_datasources() -> str:
     return catalogo
 
 
-@catalog.tool()
+@catalog.tool(
+    title="Consultar dados (SQL)",
+    description="Roda uma consulta SQL de leitura numa fonte de dados conectada.",
+)
 async def run_sql_query(datasource: str, query: str, title: str = "") -> str:
     """Executa uma consulta SQL de LEITURA (SELECT/WITH) na fonte de dados e
     materializa o resultado como um dataset artifact. Retorna o artifact_id,
@@ -319,7 +349,10 @@ async def run_sql_query(datasource: str, query: str, title: str = "") -> str:
     return resultado
 
 
-@catalog.tool()
+@catalog.tool(
+    title="Consultar dados (MongoDB)",
+    description="Roda uma consulta MongoDB numa fonte de dados conectada.",
+)
 async def query_mongo(
     datasource: str,
     collection: str,
@@ -423,7 +456,10 @@ def _plotou_sem_publicar(code: str, outputs: list[dict]) -> bool:
     return any(termo in code for termo in _BIBLIOTECAS_DE_GRAFICO)
 
 
-@catalog.tool()
+@catalog.tool(
+    title="Executar código Python",
+    description="Roda código Python num ambiente isolado, sem acesso à rede.",
+)
 async def execute_python(code: str, artifact_id: str = "") -> str:
     """Executa código Python em sandbox isolado (sem rede, com timeout).
     Se artifact_id de um dataset for passado, o código recebe `columns`,
@@ -510,7 +546,10 @@ async def execute_python(code: str, artifact_id: str = "") -> str:
     )
 
 
-@catalog.tool()
+@catalog.tool(
+    title="Gerar previsão",
+    description="Gera uma previsão estatística a partir de um conjunto de dados.",
+)
 async def generate_forecast(
     artifact_id: str,
     date_column: str,
@@ -601,7 +640,10 @@ async def generate_forecast(
     )
 
 
-@catalog.tool()
+@catalog.tool(
+    title="Buscar na web",
+    description="Pesquisa na internet e devolve resultados com título, link e resumo.",
+)
 async def web_search(query: str) -> str:
     """Busca na web e retorna resultados com título, URL e resumo. Use para
     informações atuais (notícias, preços de mercado, fatos recentes)."""
@@ -656,7 +698,10 @@ async def web_search(query: str) -> str:
     return json.dumps(results, ensure_ascii=False)
 
 
-@catalog.tool()
+@catalog.tool(
+    title="Analisar PDF",
+    description="Lê um PDF anexado na conversa, página por página, usando visão de IA.",
+)
 async def analyze_pdf_pages(attachment_name: str, instruction: str, max_pages: int = 10) -> str:
     """Analisa um PDF anexado na conversa página a página usando visão de IA.
     Passe o nome do anexo e a instrução de extração (ex.: 'liste os produtos
@@ -715,7 +760,10 @@ async def analyze_pdf_pages(attachment_name: str, instruction: str, max_pages: i
     )
 
 
-@catalog.tool()
+@catalog.tool(
+    title="Alterar dados (SQL)",
+    description="Executa uma escrita SQL (inserir, atualizar ou apagar) numa fonte de dados.",
+)
 async def execute_sql_write(datasource: str, statement: str) -> str:
     """Executa UMA escrita SQL (INSERT, UPDATE ou DELETE) na fonte de dados,
     somente em tabelas autorizadas pelo template. UPDATE/DELETE exigem WHERE.
@@ -745,7 +793,10 @@ async def execute_sql_write(datasource: str, statement: str) -> str:
     )
 
 
-@catalog.tool()
+@catalog.tool(
+    title="Alterar dados em lote (SQL)",
+    description="Executa várias escritas SQL de uma vez, tudo ou nada (transação atômica).",
+)
 async def execute_sql_transaction(datasource: str, statements_json: str) -> str:
     """Executa VÁRIAS escritas SQL numa ÚNICA transação atômica (tudo ou nada).
     Use SEMPRE que criar um registro com filhos — por exemplo um pedido e seus
@@ -783,7 +834,10 @@ async def execute_sql_transaction(datasource: str, statements_json: str) -> str:
     )
 
 
-@catalog.tool()
+@catalog.tool(
+    title="Buscar nos documentos da empresa",
+    description="Busca semântica nos documentos internos vinculados ao usuário.",
+)
 async def query_agent_rag(question: str) -> str:
     """Busca semântica nos documentos da empresa vinculados a você. Use para
     responder perguntas sobre conteúdo de arquivos (políticas, manuais,
@@ -851,7 +905,10 @@ def _dados_do_pix(payment: dict) -> dict:
     return interacao.get("transaction_data") or {}
 
 
-@catalog.tool()
+@catalog.tool(
+    title="Gerar cobrança PIX",
+    description="Gera uma cobrança PIX (QR code e código copia-e-cola).",
+)
 async def generate_pix_charge(
     amount: str,
     description: str = "",
@@ -922,7 +979,10 @@ async def generate_pix_charge(
     )
 
 
-@catalog.tool()
+@catalog.tool(
+    title="Consultar pagamento PIX",
+    description="Consulta o status de uma cobrança PIX já criada.",
+)
 async def check_payment_status(payment_id: str = "", reference_id: str = "") -> str:
     """Consulta uma cobrança PIX já existente: status, valor e o código
     copia-e-cola dela. Informe o `payment_id` devolvido por generate_pix_charge
