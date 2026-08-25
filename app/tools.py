@@ -50,6 +50,7 @@ def set_run_context(
     write_tables: list[str] | None = None,
     attachments: list[dict] | None = None,
     payment: dict | None = None,
+    email_accounts: list[dict] | None = None,
     user_id: str | None = None,
     tenant_guide_enabled: bool = False,
 ) -> None:
@@ -67,6 +68,7 @@ def set_run_context(
             "agent_files": agent_files or {},
             "write_tables": write_tables or [],
             "payment": payment or {},
+            "email_accounts": email_accounts or [],
             # Leituras já feitas neste turno. Ver `_cache_de_leitura`.
             "leituras": {},
         }
@@ -1048,6 +1050,132 @@ async def check_payment_status(payment_id: str = "", reference_id: str = "") -> 
         },
         ensure_ascii=False,
     )
+
+
+def _email_account(context: dict, label: str = "") -> dict | None:
+    accounts = context.get("email_accounts") or []
+    if not accounts:
+        return None
+    if not label:
+        return accounts[0]
+    for acc in accounts:
+        if acc.get("label", "").strip().lower() == label.strip().lower():
+            return acc
+    return None
+
+
+@catalog.tool(
+    title="Ver caixa de entrada",
+    description="Lista os emails mais recentes da caixa de entrada.",
+)
+async def email_list_inbox(label: str = "", limit: int = 10) -> str:
+    """Lista os emails mais recentes da caixa de entrada configurada (IMAP).
+
+    `label` identifica a conta quando a empresa tem mais de uma cadastrada
+    (opcional — sem informar, usa a única/primeira conta ativa). `limit`
+    (padrão 10, máximo 50) limita quantos emails vêm, do mais recente para o
+    mais antigo. Retorna remetente, assunto, data e um trecho do corpo de
+    cada email — não o corpo completo."""
+    context = _context()
+    account = _email_account(context, label)
+    if account is None:
+        return "ERRO: esta empresa ainda não configurou uma conta de email."
+
+    limit = max(1, min(limit, 50))
+
+    import asyncio
+    import email as email_lib
+    import imaplib
+    from email.header import decode_header, make_header
+
+    def _fetch() -> list[dict]:
+        conn = imaplib.IMAP4_SSL(account["imap_host"], account["imap_port"])
+        try:
+            conn.login(account["username"], account["password"])
+            conn.select("INBOX", readonly=True)
+            _, data = conn.search(None, "ALL")
+            ids = data[0].split()[-limit:]
+            ids.reverse()
+            out = []
+            for msg_id in ids:
+                _, msg_data = conn.fetch(msg_id, "(RFC822)")
+                raw = msg_data[0][1]
+                msg = email_lib.message_from_bytes(raw)
+                subject = str(make_header(decode_header(msg.get("Subject", ""))))
+                sender = str(make_header(decode_header(msg.get("From", ""))))
+                snippet = ""
+                if msg.is_multipart():
+                    for part in msg.walk():
+                        if part.get_content_type() == "text/plain":
+                            payload = part.get_payload(decode=True) or b""
+                            snippet = payload.decode(errors="replace")
+                            break
+                else:
+                    payload = msg.get_payload(decode=True) or b""
+                    snippet = payload.decode(errors="replace")
+                out.append(
+                    {
+                        "from": sender,
+                        "subject": subject,
+                        "date": msg.get("Date", ""),
+                        "snippet": snippet.strip()[:300],
+                    }
+                )
+            return out
+        finally:
+            conn.logout()
+
+    try:
+        emails = await asyncio.to_thread(_fetch)
+    except Exception as exc:  # noqa: BLE001 — o modelo precisa do motivo
+        return f"ERRO ao acessar a caixa de entrada: {exc}"
+
+    return json.dumps({"account": account["email_address"], "emails": emails}, ensure_ascii=False)
+
+
+@catalog.tool(
+    title="Enviar email",
+    description="Envia um email.",
+)
+async def email_send(to: str, subject: str, body: str, label: str = "") -> str:
+    """Envia um email pela conta configurada (SMTP). `to` é o destinatário
+    (um ou mais endereços separados por vírgula). `label` identifica a conta
+    quando a empresa tem mais de uma cadastrada (opcional). Confirme com o
+    usuário destinatário, assunto e conteúdo antes de enviar quando não
+    tiver certeza — o envio é imediato e não pode ser desfeito."""
+    context = _context()
+    account = _email_account(context, label)
+    if account is None:
+        return "ERRO: esta empresa ainda não configurou uma conta de email."
+
+    import asyncio
+    import smtplib
+    from email.mime.text import MIMEText
+
+    msg = MIMEText(body)
+    msg["Subject"] = subject
+    msg["From"] = account["email_address"]
+    msg["To"] = to
+
+    def _send() -> None:
+        if account.get("use_tls", True):
+            conn = smtplib.SMTP(account["smtp_host"], account["smtp_port"], timeout=30)
+            conn.starttls()
+        else:
+            conn = smtplib.SMTP_SSL(account["smtp_host"], account["smtp_port"], timeout=30)
+        try:
+            conn.login(account["username"], account["password"])
+            recipients = [a.strip() for a in to.split(",")]
+            conn.sendmail(account["email_address"], recipients, msg.as_string())
+        finally:
+            conn.quit()
+
+    try:
+        await asyncio.to_thread(_send)
+    except Exception as exc:  # noqa: BLE001
+        return f"ERRO ao enviar email: {exc}"
+
+    return json.dumps({"status": "ok", "to": to, "subject": subject}, ensure_ascii=False)
 
 
 def open_catalog_session():

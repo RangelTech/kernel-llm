@@ -557,6 +557,7 @@ async def _supervisor_node(state: RunState) -> dict:
         write_tables=run_config.get("write_tables", []),
         attachments=run_config.get("attachments", []),
         payment=run_config.get("payment") or {},
+        email_accounts=run_config.get("email_accounts") or [],
         user_id=run_config.get("user_id"),
         tenant_guide_enabled=bool(run_config.get("tenant_guide_enabled")),
     )
