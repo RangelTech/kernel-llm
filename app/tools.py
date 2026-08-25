@@ -51,6 +51,7 @@ def set_run_context(
     attachments: list[dict] | None = None,
     payment: dict | None = None,
     email_accounts: list[dict] | None = None,
+    google_account: dict | None = None,
     user_id: str | None = None,
     tenant_guide_enabled: bool = False,
 ) -> None:
@@ -69,6 +70,7 @@ def set_run_context(
             "write_tables": write_tables or [],
             "payment": payment or {},
             "email_accounts": email_accounts or [],
+            "google_account": google_account or {},
             # Leituras já feitas neste turno. Ver `_cache_de_leitura`.
             "leituras": {},
         }
@@ -1176,6 +1178,173 @@ async def email_send(to: str, subject: str, body: str, label: str = "") -> str:
         return f"ERRO ao enviar email: {exc}"
 
     return json.dumps({"status": "ok", "to": to, "subject": subject}, ensure_ascii=False)
+
+
+def _google_token(context: dict) -> str | None:
+    return (context.get("google_account") or {}).get("access_token")
+
+
+async def _google_get(url: str, token: str, params: dict | None = None) -> httpx.Response:
+    async with httpx.AsyncClient(timeout=20.0) as client:
+        return await client.get(url, params=params, headers={"Authorization": f"Bearer {token}"})
+
+
+async def _google_post(url: str, token: str, json_body: dict) -> httpx.Response:
+    async with httpx.AsyncClient(timeout=20.0) as client:
+        return await client.post(url, json=json_body, headers={"Authorization": f"Bearer {token}"})
+
+
+def _google_error(resp: httpx.Response) -> str:
+    return f"ERRO do Google ({resp.status_code}): {resp.text[:500]}"
+
+
+@catalog.tool(
+    title="Consultar agenda do Google",
+    description="Lista os próximos compromissos da agenda do Google Calendar.",
+)
+async def google_calendar_list_events(max_results: int = 10, time_min: str = "") -> str:
+    """Lista os próximos compromissos da agenda Google conectada pela empresa.
+
+    `max_results` (padrão 10, máximo 50) limita quantos compromissos vêm.
+    `time_min` é opcional, formato ISO 8601 (ex.: "2026-08-25T00:00:00Z") --
+    sem informar, usa o horário atual (só compromissos futuros)."""
+    context = _context()
+    token = _google_token(context)
+    if not token:
+        return "ERRO: esta empresa ainda não conectou uma conta Google."
+
+    import datetime as dt
+
+    params = {
+        "maxResults": max(1, min(max_results, 50)),
+        "singleEvents": "true",
+        "orderBy": "startTime",
+        "timeMin": time_min or dt.datetime.now(dt.UTC).isoformat(),
+    }
+    resp = await _google_get(
+        "https://www.googleapis.com/calendar/v3/calendars/primary/events", token, params
+    )
+    if resp.status_code >= 400:
+        return _google_error(resp)
+    items = resp.json().get("items", [])
+    events = [
+        {
+            "id": e["id"],
+            "summary": e.get("summary", "(sem título)"),
+            "start": (e.get("start") or {}).get("dateTime") or (e.get("start") or {}).get("date"),
+            "end": (e.get("end") or {}).get("dateTime") or (e.get("end") or {}).get("date"),
+            "location": e.get("location", ""),
+        }
+        for e in items
+    ]
+    return json.dumps({"events": events}, ensure_ascii=False)
+
+
+@catalog.tool(
+    title="Marcar compromisso no Google",
+    description="Cria um compromisso na agenda do Google Calendar.",
+)
+async def google_calendar_create_event(
+    summary: str, start: str, end: str, description: str = "", location: str = ""
+) -> str:
+    """Cria um compromisso na agenda Google conectada pela empresa. `start` e
+    `end` são data/hora em ISO 8601 com fuso (ex.:
+    "2026-08-26T15:00:00-03:00") -- NUNCA invente o fuso, use o que o cliente
+    informou ou o padrão de São Paulo (-03:00) se não especificado. Confirme
+    data, hora e assunto com o usuário antes de criar quando não tiver
+    certeza -- a criação é imediata."""
+    context = _context()
+    token = _google_token(context)
+    if not token:
+        return "ERRO: esta empresa ainda não conectou uma conta Google."
+
+    body = {
+        "summary": summary,
+        "description": description,
+        "location": location,
+        "start": {"dateTime": start},
+        "end": {"dateTime": end},
+    }
+    resp = await _google_post(
+        "https://www.googleapis.com/calendar/v3/calendars/primary/events", token, body
+    )
+    if resp.status_code >= 400:
+        return _google_error(resp)
+    created = resp.json()
+    return json.dumps(
+        {
+            "status": "ok",
+            "id": created["id"],
+            "summary": created.get("summary", summary),
+            "html_link": created.get("htmlLink"),
+        },
+        ensure_ascii=False,
+    )
+
+
+@catalog.tool(
+    title="Ler planilha do Google",
+    description="Lê valores de um intervalo de uma planilha do Google Sheets.",
+)
+async def google_sheets_read(spreadsheet_id: str, range: str = "A1:Z100") -> str:
+    """Lê valores de uma planilha do Google Sheets. `spreadsheet_id` é o ID
+    da planilha (está na URL, entre /d/ e /edit). `range` é o intervalo no
+    formato A1 (ex.: "Página1!A1:D20"), padrão "A1:Z100" da primeira aba."""
+    context = _context()
+    token = _google_token(context)
+    if not token:
+        return "ERRO: esta empresa ainda não conectou uma conta Google."
+
+    resp = await _google_get(
+        f"https://sheets.googleapis.com/v4/spreadsheets/{spreadsheet_id}/values/{range}", token
+    )
+    if resp.status_code >= 400:
+        return _google_error(resp)
+    dados = resp.json()
+    return json.dumps(
+        {"range": dados.get("range"), "values": dados.get("values", [])}, ensure_ascii=False
+    )
+
+
+@catalog.tool(
+    title="Editar planilha do Google",
+    description="Escreve valores em um intervalo de uma planilha do Google Sheets.",
+)
+async def google_sheets_write(spreadsheet_id: str, range: str, values: str) -> str:
+    """Escreve valores em uma planilha do Google Sheets. `spreadsheet_id` é o
+    ID da planilha. `range` é o intervalo no formato A1 (ex.: "Página1!A2").
+    `values` é uma matriz JSON de linhas, cada linha uma lista de células
+    (ex.: '[["João", "42"], ["Maria", "37"]]') -- SEMPRE envie como texto
+    JSON válido. Sobrescreve o intervalo informado; confirme com o usuário
+    antes de escrever quando não tiver certeza dos dados."""
+    context = _context()
+    token = _google_token(context)
+    if not token:
+        return "ERRO: esta empresa ainda não conectou uma conta Google."
+
+    try:
+        matriz = json.loads(values)
+    except json.JSONDecodeError as exc:
+        return f"ERRO: `values` precisa ser uma matriz JSON válida ({exc})"
+
+    async with httpx.AsyncClient(timeout=20.0) as client:
+        resp = await client.put(
+            f"https://sheets.googleapis.com/v4/spreadsheets/{spreadsheet_id}/values/{range}",
+            params={"valueInputOption": "USER_ENTERED"},
+            json={"values": matriz},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+    if resp.status_code >= 400:
+        return _google_error(resp)
+    dados = resp.json()
+    return json.dumps(
+        {
+            "status": "ok",
+            "updated_range": dados.get("updatedRange"),
+            "updated_cells": dados.get("updatedCells"),
+        },
+        ensure_ascii=False,
+    )
 
 
 def open_catalog_session():
