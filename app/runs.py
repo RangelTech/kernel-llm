@@ -105,6 +105,18 @@ class RunRequest(BaseModel):
     transcription: dict = Field(default_factory=dict)
     # Set only by the backend while resolving the RAgentes system template.
     tenant_guide_enabled: bool = False
+    # Achado real 26/08/2026: estes 3 nunca tinham sido declarados aqui --
+    # o backend sempre mandou no corpo do POST, mas o Pydantic descarta
+    # campo não declarado por padrão (extra="ignore"), então
+    # `run_config.get("email_accounts"/"google_accounts"/"microsoft_accounts")`
+    # em `graph.py` sempre caía no fallback `[]`, silenciosamente, mesmo com
+    # a conta conectada de verdade no banco. As tools sempre respondiam
+    # "ainda não conectou" pra qualquer conta real -- nunca funcionou desde
+    # que a feature existe, só os testes unitários (que chamam
+    # `set_run_context` direto, sem passar pelo HTTP) escondiam isso.
+    email_accounts: list[dict] = Field(default_factory=list)
+    google_accounts: list[dict] = Field(default_factory=list)
+    microsoft_accounts: list[dict] = Field(default_factory=list)
 
 
 def require_internal_auth(request: Request) -> None:
@@ -145,6 +157,9 @@ async def create_run(payload: RunRequest):
         "tenant_guide_enabled": payload.tenant_guide_enabled,
         "write_tables": payload.write_tables,
         "require_write_confirmation": payload.require_write_confirmation,
+        "email_accounts": payload.email_accounts,
+        "google_accounts": payload.google_accounts,
+        "microsoft_accounts": payload.microsoft_accounts,
     }
 
     async def event_stream():
