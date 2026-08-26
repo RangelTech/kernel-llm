@@ -63,7 +63,8 @@ async def test_register_init_then_complete_publishes_artifact(client):
 
     with psycopg.connect(settings.database_url) as conn:
         row = conn.execute(
-            "SELECT tenant_id, kind, agent_name, storage_path, content_type FROM artifacts WHERE id = %s",
+            "SELECT tenant_id, kind, agent_name, storage_path, content_type"
+            " FROM artifacts WHERE id = %s",
             (target["artifact_id"],),
         ).fetchone()
     assert str(row[0]) == TENANT_ID

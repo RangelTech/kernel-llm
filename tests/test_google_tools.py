@@ -28,7 +28,13 @@ def _start_fake_google():
     @fake.get("/calendar/v3/calendars/primary/events")
     async def list_events(request: Request):
         seen["auth"] = request.headers.get("authorization")
-        return {"items": [{"id": "evt-1", "summary": "Consulta", "start": {"dateTime": "2026-08-26T15:00:00-03:00"}, "end": {"dateTime": "2026-08-26T15:30:00-03:00"}}]}
+        evento = {
+            "id": "evt-1",
+            "summary": "Consulta",
+            "start": {"dateTime": "2026-08-26T15:00:00-03:00"},
+            "end": {"dateTime": "2026-08-26T15:30:00-03:00"},
+        }
+        return {"items": [evento]}
 
     config = uvicorn.Config(fake, host="127.0.0.1", port=0, log_level="error")
     server = uvicorn.Server(config)
@@ -71,7 +77,15 @@ async def test_sem_label_usa_a_unica_conta(monkeypatch):
         return Resp()
 
     monkeypatch.setattr(tools_module, "_google_get", fake_get)
-    _context([{"label": "Dr. Fulano", "access_token": "token-fulano", "email_address": "fulano@example.com"}])
+    _context(
+        [
+            {
+                "label": "Dr. Fulano",
+                "access_token": "token-fulano",
+                "email_address": "fulano@example.com",
+            }
+        ]
+    )
     async with open_catalog_session() as session:
         result = await session.call_tool("google_calendar_list_events", {})
     payload = json.loads(_tool_text(result))
@@ -100,8 +114,16 @@ async def test_com_duas_contas_label_escolhe_a_certa(monkeypatch):
     monkeypatch.setattr(tools_module, "_google_get", fake_get)
     _context(
         [
-            {"label": "Dr. Fulano", "access_token": "token-fulano", "email_address": "fulano@example.com"},
-            {"label": "Dra. Beltrana", "access_token": "token-beltrana", "email_address": "beltrana@example.com"},
+            {
+                "label": "Dr. Fulano",
+                "access_token": "token-fulano",
+                "email_address": "fulano@example.com",
+            },
+            {
+                "label": "Dra. Beltrana",
+                "access_token": "token-beltrana",
+                "email_address": "beltrana@example.com",
+            },
         ]
     )
     async with open_catalog_session() as session:
@@ -131,12 +153,22 @@ async def test_label_sem_correspondencia_nao_vaza_pra_outra_conta(monkeypatch):
     monkeypatch.setattr(tools_module, "_google_get", fake_get)
     _context(
         [
-            {"label": "Dr. Fulano", "access_token": "token-fulano", "email_address": "fulano@example.com"},
-            {"label": "Dra. Beltrana", "access_token": "token-beltrana", "email_address": "beltrana@example.com"},
+            {
+                "label": "Dr. Fulano",
+                "access_token": "token-fulano",
+                "email_address": "fulano@example.com",
+            },
+            {
+                "label": "Dra. Beltrana",
+                "access_token": "token-beltrana",
+                "email_address": "beltrana@example.com",
+            },
         ]
     )
     async with open_catalog_session() as session:
-        result = await session.call_tool("google_calendar_list_events", {"label": "Dr. Inexistente"})
+        result = await session.call_tool(
+            "google_calendar_list_events", {"label": "Dr. Inexistente"}
+        )
     assert "ainda não conectou" in _tool_text(result)
     assert calls == []
 
@@ -155,7 +187,15 @@ async def test_ponta_a_ponta_contra_api_google_fake_com_label():
 
     try:
         tools_module._google_get = patched_get
-        _context([{"label": "Clínica", "access_token": "TOKEN-REAL", "email_address": "clinica@example.com"}])
+        _context(
+            [
+                {
+                    "label": "Clínica",
+                    "access_token": "TOKEN-REAL",
+                    "email_address": "clinica@example.com",
+                }
+            ]
+        )
         async with open_catalog_session() as session:
             result = await session.call_tool("google_calendar_list_events", {})
         payload = json.loads(_tool_text(result))

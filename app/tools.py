@@ -1217,7 +1217,9 @@ def _google_error(resp: httpx.Response) -> str:
     title="Consultar agenda do Google",
     description="Lista os próximos compromissos da agenda do Google Calendar.",
 )
-async def google_calendar_list_events(max_results: int = 10, time_min: str = "", label: str = "") -> str:
+async def google_calendar_list_events(
+    max_results: int = 10, time_min: str = "", label: str = ""
+) -> str:
     """Lista os próximos compromissos da agenda Google conectada pela empresa.
 
     `max_results` (padrão 10, máximo 50) limita quantos compromissos vêm.
@@ -1406,7 +1408,9 @@ def _ms_error(resp: httpx.Response) -> str:
     title="Consultar agenda do Outlook",
     description="Lista os próximos compromissos da agenda do Outlook/Microsoft 365.",
 )
-async def outlook_calendar_list_events(max_results: int = 10, time_min: str = "", label: str = "") -> str:
+async def outlook_calendar_list_events(
+    max_results: int = 10, time_min: str = "", label: str = ""
+) -> str:
     """Lista os próximos compromissos da agenda Microsoft/Outlook conectada
     pela empresa.
 

@@ -55,8 +55,16 @@ async def test_com_duas_contas_label_escolhe_a_certa(monkeypatch):
     monkeypatch.setattr(tools_module, "_ms_get", fake_get)
     _context(
         [
-            {"label": "Recepção", "access_token": "token-recepcao", "email_address": "recepcao@empresa.com"},
-            {"label": "Financeiro", "access_token": "token-financeiro", "email_address": "financeiro@empresa.com"},
+            {
+                "label": "Recepção",
+                "access_token": "token-recepcao",
+                "email_address": "recepcao@empresa.com",
+            },
+            {
+                "label": "Financeiro",
+                "access_token": "token-financeiro",
+                "email_address": "financeiro@empresa.com",
+            },
         ]
     )
     async with open_catalog_session() as session:
@@ -81,9 +89,19 @@ async def test_label_sem_correspondencia_nao_vaza_pra_outra_conta(monkeypatch):
         return Resp()
 
     monkeypatch.setattr(tools_module, "_ms_get", fake_get)
-    _context([{"label": "Recepção", "access_token": "token-recepcao", "email_address": "recepcao@empresa.com"}])
+    _context(
+        [
+            {
+                "label": "Recepção",
+                "access_token": "token-recepcao",
+                "email_address": "recepcao@empresa.com",
+            }
+        ]
+    )
     async with open_catalog_session() as session:
-        result = await session.call_tool("outlook_calendar_list_events", {"label": "Inexistente"})
+        result = await session.call_tool(
+            "outlook_calendar_list_events", {"label": "Inexistente"}
+        )
     assert "ainda não conectou" in _tool_text(result)
     assert calls == []
 
@@ -113,7 +131,15 @@ async def test_criar_evento_com_reuniao_teams_pede_o_campo_certo(monkeypatch):
         return Resp()
 
     monkeypatch.setattr(tools_module, "_ms_post", fake_post)
-    _context([{"label": "Recepção", "access_token": "token-recepcao", "email_address": "recepcao@empresa.com"}])
+    _context(
+        [
+            {
+                "label": "Recepção",
+                "access_token": "token-recepcao",
+                "email_address": "recepcao@empresa.com",
+            }
+        ]
+    )
     async with open_catalog_session() as session:
         result = await session.call_tool(
             "outlook_calendar_create_event",
@@ -147,7 +173,15 @@ async def test_criar_evento_sem_teams_nao_manda_campo_de_reuniao(monkeypatch):
         return Resp()
 
     monkeypatch.setattr(tools_module, "_ms_post", fake_post)
-    _context([{"label": "Recepção", "access_token": "token-recepcao", "email_address": "recepcao@empresa.com"}])
+    _context(
+        [
+            {
+                "label": "Recepção",
+                "access_token": "token-recepcao",
+                "email_address": "recepcao@empresa.com",
+            }
+        ]
+    )
     async with open_catalog_session() as session:
         await session.call_tool(
             "outlook_calendar_create_event",
