@@ -7,6 +7,7 @@ médico de uma clínica)."""
 import json
 import threading
 
+import httpx
 import pytest
 import uvicorn
 
@@ -205,3 +206,95 @@ async def test_ponta_a_ponta_contra_api_google_fake_com_label():
 
     assert seen["auth"] == "Bearer TOKEN-REAL"
     assert payload["events"][0]["summary"] == "Consulta"
+
+
+async def test_criar_planilha_sem_conta_conectada_explica_em_vez_de_travar():
+    """26/08/2026: gap real achado -- não existia jeito de CRIAR uma
+    planilha nova, só ler/escrever numa que já existia. Tool nova."""
+    _context([])
+    async with open_catalog_session() as session:
+        result = await session.call_tool("google_sheets_create", {"title": "Reuniões"})
+    assert "ainda não conectou" in _tool_text(result)
+
+
+async def test_criar_planilha_sem_valores(monkeypatch):
+    import app.tools as tools_module
+
+    seen = {}
+
+    async def fake_post(url, token, json_body):
+        seen["url"] = url
+        seen["body"] = json_body
+
+        class Resp:
+            status_code = 200
+
+            def json(self_inner):
+                return {
+                    "spreadsheetId": "sheet-abc123",
+                    "spreadsheetUrl": "https://docs.google.com/spreadsheets/d/sheet-abc123",
+                }
+
+        return Resp()
+
+    monkeypatch.setattr(tools_module, "_google_post", fake_post)
+    _context(
+        [{"label": "Clínica", "access_token": "TOKEN-REAL", "email_address": "clinica@example.com"}]
+    )
+    async with open_catalog_session() as session:
+        result = await session.call_tool("google_sheets_create", {"title": "Reuniões"})
+    payload = json.loads(_tool_text(result))
+    assert payload["status"] == "ok"
+    assert payload["spreadsheet_id"] == "sheet-abc123"
+    assert seen["url"] == "https://sheets.googleapis.com/v4/spreadsheets"
+    assert seen["body"] == {"properties": {"title": "Reuniões"}}
+
+
+async def test_criar_planilha_com_valores_ja_preenche_a_primeira_aba(monkeypatch):
+    """`values` opcional -- confirma que o preenchimento da 1a aba usa o
+    `spreadsheet_id` recém-criado e a matriz certa."""
+    import app.tools as tools_module
+
+    async def fake_post(url, token, json_body):
+        class Resp:
+            status_code = 200
+
+            def json(self_inner):
+                return {
+                    "spreadsheetId": "sheet-novo",
+                    "spreadsheetUrl": "https://docs.google.com/spreadsheets/d/sheet-novo",
+                }
+
+        return Resp()
+
+    put_chamado = {}
+
+    async def fake_put(self, url, **kwargs):
+        put_chamado["url"] = url
+        put_chamado["json"] = kwargs.get("json")
+        put_chamado["headers"] = kwargs.get("headers")
+
+        class Resp:
+            status_code = 200
+
+            def json(self_inner):
+                return {}
+
+        return Resp()
+
+    monkeypatch.setattr(tools_module, "_google_post", fake_post)
+    monkeypatch.setattr(httpx.AsyncClient, "put", fake_put)
+    _context(
+        [{"label": "Clínica", "access_token": "TOKEN-REAL", "email_address": "clinica@example.com"}]
+    )
+    async with open_catalog_session() as session:
+        result = await session.call_tool(
+            "google_sheets_create",
+            {"title": "Reuniões", "values": '[["Reunião", "Data"], ["Alinhamento", "2026-08-26"]]'},
+        )
+    payload = json.loads(_tool_text(result))
+    assert payload["status"] == "ok"
+    assert payload["spreadsheet_id"] == "sheet-novo"
+    assert put_chamado["url"] == "https://sheets.googleapis.com/v4/spreadsheets/sheet-novo/values/A1"
+    assert put_chamado["json"] == {"values": [["Reunião", "Data"], ["Alinhamento", "2026-08-26"]]}
+    assert put_chamado["headers"]["Authorization"] == "Bearer TOKEN-REAL"

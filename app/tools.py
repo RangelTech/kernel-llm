@@ -1373,6 +1373,71 @@ async def google_sheets_write(spreadsheet_id: str, range: str, values: str, labe
     )
 
 
+@catalog.tool(
+    title="Criar planilha do Google",
+    description="Cria uma planilha nova do zero no Google Sheets.",
+)
+async def google_sheets_create(title: str, values: str = "", label: str = "") -> str:
+    """Cria uma planilha nova do Google Sheets. `title` é o nome da
+    planilha. `values` é opcional -- matriz JSON de linhas pra já
+    preencher a primeira aba na criação (ex.: '[["Reunião", "Data"],
+    ["Alinhamento", "2026-08-26"]]'), SEMPRE como texto JSON válido;
+    sem informar, cria vazia. `label` identifica a conta quando a
+    empresa tem mais de uma conectada (opcional -- sem informar, usa a
+    única/primeira conta ativa). Devolve o `spreadsheet_id` e o link
+    pra planilha criada."""
+    context = _context()
+    token = _google_token(context, label)
+    if not token:
+        return "ERRO: esta empresa ainda não conectou uma conta Google."
+
+    if values:
+        try:
+            matriz = json.loads(values)
+        except json.JSONDecodeError as exc:
+            return f"ERRO: `values` precisa ser uma matriz JSON válida ({exc})"
+    else:
+        matriz = None
+
+    resp = await _google_post(
+        "https://sheets.googleapis.com/v4/spreadsheets",
+        token,
+        {"properties": {"title": title}},
+    )
+    if resp.status_code >= 400:
+        return _google_error(resp)
+    criada = resp.json()
+    spreadsheet_id = criada.get("spreadsheetId")
+
+    if matriz:
+        async with httpx.AsyncClient(timeout=20.0) as client:
+            escrita = await client.put(
+                f"https://sheets.googleapis.com/v4/spreadsheets/{spreadsheet_id}/values/A1",
+                params={"valueInputOption": "USER_ENTERED"},
+                json={"values": matriz},
+                headers={"Authorization": f"Bearer {token}"},
+            )
+        if escrita.status_code >= 400:
+            return json.dumps(
+                {
+                    "status": "planilha_criada_sem_dados",
+                    "spreadsheet_id": spreadsheet_id,
+                    "spreadsheet_url": criada.get("spreadsheetUrl"),
+                    "erro_ao_preencher": _google_error(escrita),
+                },
+                ensure_ascii=False,
+            )
+
+    return json.dumps(
+        {
+            "status": "ok",
+            "spreadsheet_id": spreadsheet_id,
+            "spreadsheet_url": criada.get("spreadsheetUrl"),
+        },
+        ensure_ascii=False,
+    )
+
+
 def _microsoft_account(context: dict, label: str = "") -> dict | None:
     accounts = context.get("microsoft_accounts") or []
     if not accounts:
