@@ -136,9 +136,13 @@ resource "google_cloud_run_v2_service" "kernel_llm" {
       # dashboard do RAgentes (`agent-llm-backend`, mesmo achado, já
       # corrigido). min=1 documentado na skill `agentllm` (personal-skills).
       #
-      # min=1 restaurado por decisão do dono (24/08/2026): entrou em
-      # produção, cold start deixa de ser aceitável.
-      min_instance_count = 1
+      # TEMPORÁRIO (25→26/08/2026, madrugada): min=0 pra economizar custo
+      # durante execução autônoma noturna sem tráfego real, pedido explícito
+      # do dono. Valor de produção de verdade é min=1 (decisão 24/08/2026,
+      # cold start deixa de ser aceitável com cliente real) -- REVERTER pra
+      # min_instance_count = 1 antes de qualquer tráfego de cliente voltar.
+      # Registrado em memoria.md pra não esquecer.
+      min_instance_count = 0
       max_instance_count = 3
     }
 
