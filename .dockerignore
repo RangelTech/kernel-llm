@@ -1,0 +1,17 @@
+.git
+.github
+.venv
+.env
+.env.*
+__pycache__
+*.pyc
+.ruff_cache
+.pytest_cache
+artifacts
+tests
+docs
+scripts
+docker
+*.md
+image.tar.gz
+release-manifest.json

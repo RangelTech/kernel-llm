@@ -1,9 +1,18 @@
+from pydantic import AliasChoices, Field, model_validator
 from pydantic_settings import BaseSettings
 
 
 class Settings(BaseSettings):
     """Kernel settings. Dev defaults only; production values come from the
-    environment (Cloud Run). Tenant/provider config lives in the database."""
+    environment. Tenant/provider config lives in the database.
+
+    Modo producao: ENVIRONMENT=prod (ou RT_ENV=prod; aceita prod/production).
+    Em producao o processo recusa subir sem INTERNAL_TOKEN e
+    ENABLE_STUB_CONTROL passa a ser false por padrao."""
+
+    environment: str = Field(
+        default="dev", validation_alias=AliasChoices("ENVIRONMENT", "RT_ENV")
+    )
 
     database_url: str = "postgresql://agent:agent@localhost:5433/agent_llm"
     port: int = 8080
@@ -14,7 +23,7 @@ class Settings(BaseSettings):
     # turno que emite uma ferramenta a cada poucos segundos nunca encosta nisto.
     turn_timeout_seconds: float = 120.0
     # Teto do turno inteiro. Precisa ficar ABAIXO do timeout de requisição do
-    # Cloud Run (600 s em infra/deploy.sh): passando dele, quem corta é a borda,
+    # proxy/borda (Traefik): passando dele, quem corta é a borda,
     # e o cliente recebe a conexão cortada no lugar do evento de timeout.
     turn_total_timeout_seconds: float = 540.0
     # Default supervisor step budget per turn when the template omits it.
@@ -67,9 +76,25 @@ class Settings(BaseSettings):
     # authenticated with internal_token and never exposed to the browser/model.
     platform_backend_url: str = "http://localhost:8090"
     # Exposes POST /stub/script so test suites can program the stub provider.
-    enable_stub_control: bool = True
+    # Default: true fora de producao, false em producao (ver _production_guards).
+    enable_stub_control: bool | None = None
 
     model_config = {"env_file": ".env", "extra": "ignore"}
+
+    @property
+    def is_production(self) -> bool:
+        return self.environment.strip().lower() in {"prod", "production"}
+
+    @model_validator(mode="after")
+    def _production_guards(self):
+        if self.is_production and not self.internal_token.strip():
+            raise ValueError(
+                "INTERNAL_TOKEN vazio em producao (ENVIRONMENT/RT_ENV=prod): "
+                "recusando subir com a autenticacao desligada"
+            )
+        if self.enable_stub_control is None:
+            self.enable_stub_control = not self.is_production
+        return self
 
 
 settings = Settings()

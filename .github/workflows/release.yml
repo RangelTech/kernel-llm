@@ -1,0 +1,79 @@
+name: Release
+# Publica a imagem por digest + release-manifest.json. NAO faz deploy (so o vps_rt_infra implanta).
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Versao (ex.: v0.1.1); cria a tag no commit atual"
+        required: true
+permissions:
+  contents: write
+  packages: write
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Versao
+        id: v
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then V="${{ inputs.version }}"; else V="${GITHUB_REF_NAME}"; fi
+          echo "version=$V" >> "$GITHUB_OUTPUT"
+      - name: Gate (mesma imagem)
+        run: bash scripts/verify.sh
+      - name: Build da imagem (mesmo Dockerfile do gate)
+        run: |
+          V="${{ steps.v.outputs.version }}"
+          docker build -f docker/kernel-llm.Dockerfile --build-arg GIT_COMMIT="${GITHUB_SHA}" -t "kernel-llm/kernel:${V}" .
+          docker save "kernel-llm/kernel:${V}" | gzip -9 > image.tar.gz
+          echo "IMAGE_ID=sha256:$(gunzip -c image.tar.gz | tar -xO manifest.json | python3 -c "import sys,json,re;print(re.sub(r'^.*/','',json.load(sys.stdin)[0]['Config']).replace('.json',''))")" >> "$GITHUB_ENV"
+          echo "ARCHIVE_SHA=$(sha256sum image.tar.gz | cut -d' ' -f1)" >> "$GITHUB_ENV"
+          ls -l image.tar.gz
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Push opcional ao GHCR (futuro; o artefato oficial e o asset da release)
+        continue-on-error: true
+        run: |
+          V="${{ steps.v.outputs.version }}"
+          docker tag "kernel-llm/kernel:${V}" "ghcr.io/rangeltech/kernel-llm/kernel:${V}"
+          docker push "ghcr.io/rangeltech/kernel-llm/kernel:${V}"
+      - name: Manifesto
+        run: |
+          python3 - <<'PY'
+          import json, os, datetime
+          v = "${{ steps.v.outputs.version }}"
+          m = {
+            "schema": 1,
+            "service": "kernel-llm",
+            "repo": "RangelTech/kernel-llm",
+            "commit": os.environ["GITHUB_SHA"][:7],
+            "version": v,
+            "artifact": {
+              "type": "docker-archive",
+              "asset": "image.tar.gz",
+              "sha256": os.environ["ARCHIVE_SHA"],
+              "image_id": os.environ["IMAGE_ID"],
+              "tag": "kernel-llm/kernel:" + v
+            },
+            "built_at": datetime.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "healthcheck": {"path": "/health", "expect": 200, "timeout_s": 90, "port": 8080},
+            "env": {"required": ["DATABASE_URL", "INTERNAL_TOKEN", "PLATFORM_BACKEND_URL", "STORAGE_BACKEND", "S3_ENDPOINT_URL", "S3_BUCKET", "S3_ACCESS_KEY_ID", "S3_SECRET_ACCESS_KEY"]},
+            "resources": {"memory": "2g", "cpus": "1"}
+          }
+          json.dump(m, open("release-manifest.json", "w"), indent=2)
+          PY
+          cat release-manifest.json
+      - name: GitHub Release com manifesto e imagem
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          V="${{ steps.v.outputs.version }}"
+          gh release create "$V" release-manifest.json image.tar.gz --title "$V" --notes "Artefato docker-archive (sha256 no manifesto). Deploy: somente vps_rt_infra." --target "${GITHUB_SHA}" || gh release upload "$V" release-manifest.json image.tar.gz --clobber
